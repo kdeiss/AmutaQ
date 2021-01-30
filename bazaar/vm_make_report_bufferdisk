@@ -1,0 +1,95 @@
+#! /bin/bash
+# generates a short report for bufferdisk (called from main report generator vm_make_report)
+# by k.deiss@it-userdesk.de
+# V 0.0.1 29.12.15
+# V 0.0.2.2.1.16 bugfix
+# V 0.0.3.11.1.16 bugfix (df -hl)
+# V 0.0.4.10.10.19 ah correct output for Mail
+
+source /opt/AmutaQ!/etc/AmutaQ!.conf
+
+if [ -f $1 ] && [ ! -z $1 ] ; then
+    LOG=$1
+    let LOCALLOG=0
+else
+    LOG="/tmp/bufferdisk.tmp"
+    echo -n "" > $LOG
+    let LOCALLOG=1
+fi
+
+
+function check_bufferdisk
+{
+VMBACKUPDEV=`dirname $VMBACKUPTARGET`
+let n=0
+let PERC=100
+for RSTSTRING in `df -hl | grep $VMBACKUPDEV`
+    do
+        if [ $n -eq 4 ] ; then
+            let PERC=`echo $RSTSTRING|cut -f 1 -d %`
+        fi
+        let n=$n+1
+    done
+    return $PERC
+}
+
+
+function get_freeblocksonbufferdisk
+{
+VMBACKUPDEV=`dirname $VMBACKUPTARGET`
+let n=0
+let PERC=100
+for RSTSTRING in `df -hl | grep $VMBACKUPDEV`
+    do
+        if [ $n -eq 3 ] ; then
+	    FREEBLOCKS=$RSTSTRING
+	    break
+        fi
+        let n=$n+1
+    done
+}
+
+
+# generate du statistic per machine on bufferdisk
+function getVMSSize4BufferDisk
+{
+for VMCTRTMP in $VMLIST
+    do
+	#echo $VMCTRTMP
+        let MAXJOBS=$MAXJOBS+1
+	du -h $VMBACKUPTARGET |grep $VMCTRTMP >> $LOG;
+    done
+}
+
+
+get_freeblocksonbufferdisk
+check_bufferdisk
+PBUFDISK=$?
+echo -e "TARGET $VMBACKUPDEV is filled to $PBUFDISK% available $FREEBLOCKS." >> $LOG;
+if [ $PBUFDISK -gt 95 ] ;then
+    echo "`date` WAR BUFFERDISK FILLED CRITICALLY" >> $LOG;
+fi
+
+
+# in case of multiple ESXi Hosts we have to use annither way to count the VMs
+let f=0
+let MAXJOBS=0
+if [ -f /opt/AmutaQ!/etc/AmutaQ!.conf.$f ];then 
+    let f=0
+    while [ $f -lt 10 ];do
+	if [ -f /opt/AmutaQ!/etc/AmutaQ!.conf.$f ];then
+	    source /opt/AmutaQ!/etc/AmutaQ!.conf.$f
+	    getVMSSize4BufferDisk
+	fi
+	let f=$f+1
+    done
+    source /opt/AmutaQ!/etc/AmutaQ!.conf
+else
+    getVMSSize4BufferDisk
+fi
+
+
+if [ $LOCALLOG -eq 1 ] ; then
+    cat $LOG
+    rm $LOG
+fi

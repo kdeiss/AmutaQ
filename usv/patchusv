@@ -1,0 +1,91 @@
+#! /bin/bash
+
+function primifileeditor()
+{
+#replaces line with search through replace
+fname=$1
+search=$2
+replace=$3
+
+let lfound=0
+TMPFILE="/tmp/$$_primiedit"
+
+if [ -f $fname ] ; then
+    while read line
+    do
+	if [[ ${line:0:1} == "#" ]]; then 
+	    echo $line >> $TMPFILE
+	else
+	    echo $line | grep $search
+	    if [ $? -eq 0 ] ;then
+		let lfound=$lfound+1
+		echo $replace >> $TMPFILE
+	    else
+		echo $line >> $TMPFILE
+    	    fi
+	fi
+
+    done < $fname
+else
+    echo "ERR $fname not found !!! "
+    exit 1
+fi
+
+if [ $lfound -eq 1 ] ; then
+    echo "$fname patsched ....."
+    cp $TMPFILE $fname
+else
+    echo "ERR $lfound lines found with $search !!!"
+fi
+
+}
+
+
+
+
+
+function patchusv()
+{
+
+SAVEIFS=$IFS
+IFS=$(echo -en "\n\b")
+while read line
+do
+    echo $line|grep "Event" > /dev/null
+    if [ $? -eq 0 ] ; then
+	echo $line|grep "/opt/AmutaQ!" > /dev/null
+	if [ $? -eq 0 ] ; then
+	    #is already patched
+	    echo $line
+	else
+	    #echo $line >> $MSGFILE
+	    EVENT=`echo $line|cut -f 1 -d "="`
+	    if [ $EVENT == "Event0" ] ; then
+		echo "${line}EXECUTE("\"/opt/AmutaQ!/usv/esxi_shutdown\"","\"$EVENT \#AUTONOMTIME \"")P240;"
+	    else
+		echo "${line}EXECUTE("\"/opt/AmutaQ!/usv/esxi_shutdown\"","\"$EVENT\"")O;"
+	    fi
+	fi
+    else
+	echo $line
+    fi
+done < $UPSCFG
+IFS=$SAVEIFS
+}
+
+
+#patch usv config
+UPSCFG=./ups.cfg
+MSGFILE=./ups.txt
+TMPFILE="/tmp/$$_primiedit"
+#date >$MSGFILE
+echo "patching ups config"
+
+if [ -z $UPSCFG ] ; then
+    echo $UPSCFG not found - exit !
+    exit 1
+fi
+patchusv > $TMPFILE
+cp $TMPFILE $UPSCFG
+
+

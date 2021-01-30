@@ -1,0 +1,78 @@
+#! /bin/bash
+# by k.deiss@it-userdesk.de
+# preparing usb disk to use external indexfile
+# V 0.0.1.1.5.14 initial release
+# V 0.0.1.12.10.14 got mountpoint via commandline
+# V 0.0.2.04.11.14 allow even if another disk is mounted to ddumbfs
+
+#set -x
+
+source /opt/AmutaQ!/etc/AmutaQ!.conf
+source /opt/AmutaQ!/lib/cfgedit.lib
+
+
+MPOINT=$1
+if [ -z $MPOINT ] ; then
+    echo $0 MPOINT eg. sdc1
+    exit 1
+fi
+
+TARGETHD="/mnt/$MPOINT"
+ADIR="/opt/AmutaQ!"
+IDIR="$ADIR/indexfiles"
+DDIR="$TARGETHD/l0/ddumbfs"
+DISKINFO="$TARGETHD/diskinfo"
+LOG="./xy.log"
+
+echo "TARGETHD:$TARGETHD"
+
+#mount | grep $DDUMBVOL >/dev/null
+#RST=$? #if 1 then not mounted
+#if [ $RST -eq 0 ] ; then
+#    echo "DDUMBFS $DDUMBVOL mounted - exiting !" | tee -a $LOG
+#    exit 1
+#fi
+
+if [ ! -f $DISKINFO ];then
+    echo "NO DISKINFO FILE"
+    #we have to find the corresponding device
+    sdev=`mount | grep $TARGETHD`
+    if [ -z "$sdev" ] ; then
+	echo "DISK NOT MOUNTED"
+	exit 2
+    fi
+    sdev=`echo $sdev|cut -f 1 -d " "`
+
+    #UUID=`blkid|grep $TARGETHD|cut -f 2 -d " "|cut -f 2 -d "=" | sed "s/\"//g"`
+    UUID=`blkid|grep $sdev|cut -f 2 -d " "|cut -f 2 -d "=" | sed "s/\"//g"|cut -f 1 -d " "`
+    echo "THDD:${TARGETHD}"
+    echo "UUID:$UUID"
+
+    if [ ! -z $UUID ]; then
+	echo "UUID: $UUID" > $DISKINFO
+	echo "created generic diskinfo file"
+    else
+	echo "cannot create generic diskinfo file"
+	exit 1
+    fi
+fi
+
+
+INDEXFN=`cat $DISKINFO | grep "UUID" | cut -f 2 -d " "`
+if [ -z $INDEXFN ];then
+    echo "missing $DISKINFO or wrong format"
+    exit 2
+else
+    if [ -f "$IDIR/$INDEXFN.idx" ];then
+	echo "$IDIR/$INDEXFN.idx already exists !"
+	exit 1
+    fi
+
+    echo "creating $IDIR/$INDEXFN.idx"
+    cp $DDIR/ddfsidx $IDIR/$INDEXFN.idx
+fi
+
+#change indexfile in cfg
+echo "patching $DDIR/ddfs.cfg"
+primifileeditor "$DDIR/ddfs.cfg" "index_filename:" "index_filename: $IDIR/$INDEXFN.idx"
+exit $?

@@ -1,0 +1,10 @@
+Semaphore
+
+wait 		backup will wait as long this file exist
+waita 		async-backup will wait as long this file exist
+stop		backup will stop as soon as possible
+astop		async-backup will stop as soon as possible
+switch		switch to next hd in chain
+kill 		kills the system with force - not recommended
+noautostart	don't start the system after reboot automatically 
+skipcrc		skip crc check during copy to ddumbfs (not recommended)

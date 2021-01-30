@@ -1,0 +1,4 @@
+# control network config
+
+CIFACTIVE=0 # the mechanism to on/off controlinterface ist active=1
+CIFINTERNALNET=eth0 # this is the ethernetadapter connecting to internal network 

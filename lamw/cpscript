@@ -1,0 +1,263 @@
+#! /bin/bash
+# by k.deiss@it-userdesk.de
+# copy script to esxi server
+# V 0.0.1.27.12.15
+# V 0.0.2.31.12.20 kd/ah bugfix detecting process already running
+
+
+source /opt/AmutaQ!/etc/AmutaQ!_TEST.conf
+LOG=$ASYNC_LOG
+BASEPATH="/opt/AmutaQ!/lamw"
+LAMWLOG="/var/log/lamw.log"
+TMPLOG="/tmp/lamw.log"
+#VM_BACKUP_ROTATION_COUNT=$KEEPVERSIONS
+VM_BACKUP_ROTATION_COUNT=1
+FNAME="ghettoVCB"
+# The commandline to the ESXI host
+CMDL="sshpass -p "$VMPASSWORD" ssh -o StrictHostKeyChecking=no $VMUSER@$VMHOST"
+
+
+
+#aus /etc/amuxxxxx.conf
+VMBACKUPTARGET="/mnt/bufferdisk/bazaar_test"
+#mountpoint of ddumbfs
+DDUMBVOL="/mnt/ddumbfs"
+#the final target (backup from backup in async mode) this should be the ddup filesystem
+ASYNCTARGET="$DDUMBVOL/bazaar_test" 
+
+#aus kommandozeile
+VMGUEST=$1
+VMGUEST="W7-KLOAKE"
+
+
+#LOCAL_VM_BACKUP_VOLUME="$VMBACKUPTARGET"
+LOCAL_VM_BACKUP_VOLUME="$ASYNCTARGET"
+
+
+echo $LOCAL_VM_BACKUP_VOLUME | grep $DDUMBVOL >/dev/null
+# you have to ensure that these nfs shares exist on the esxi host!
+# that is either BUFFERDISK_192.xxx.xxx.xxx or DDUMBFS_192.xxx.xxx.xxx
+if [ $? -eq 0 ]; then
+    VM_BACKUP_VOLUME="/vmfs/volumes/DDUMBFS_${BACKUPNETWORK_IP}/`basename $LOCAL_VM_BACKUP_VOLUME`"
+else
+    VM_BACKUP_VOLUME="/vmfs/volumes/BUFFERDISK_${BACKUPNETWORK_IP}/`basename $LOCAL_VM_BACKUP_VOLUME`"
+fi
+
+
+
+##############script detection#########################
+LOCKFILE=/tmp/$(basename $0).lck
+#[ -f $LOCKFILE ] && { echo "`date` INF $0 already running" >> $LOG; exit 1; }
+#[ -f $LOCKFILE ] && { exit 1; }
+
+if [ -f $LOCKFILE ] ; then
+    SPID=`cat $LOCKFILE`
+#    ps -e | grep $SPID >> /dev/null
+    ps -o cmd -p $SPID |grep `basename $0` >> /dev/null
+    if [ $? -eq 0 ] ; then
+	# echo "`date` INF $0 already running"
+	exit 1
+    else
+	echo "`date` WAR $0 has lockfile but is not running!" >> $LOG
+    fi
+fi
+
+
+del_lock()
+{
+    echo "`date` $0 WARNING external signal caught, exiting" >> $LOG
+    rm -f $LOCKFILE
+}
+
+trap "del_lock ; exit 1" 2 9 15
+echo $$ > $LOCKFILE
+##############script detection#########################
+
+
+#######################################################
+#             functions
+#######################################################
+
+
+#prepare ghetto configuration file
+prep_conf()
+{
+
+echo -n "" > $FNAME.conf
+if [ -f  $FNAME.sample ];then
+    while read line
+    do
+	echo $line | grep "VM_BACKUP_VOLUME" >/dev/null
+	if [ $? -eq 0 ] ;then
+	    echo "VM_BACKUP_VOLUME=$VM_BACKUP_VOLUME" >> $FNAME.conf
+	else
+	    #VM_BACKUP_ROTATION_COUNT=3
+	    echo $line | grep "VM_BACKUP_ROTATION_COUNT" >/dev/null
+	    if [ $? -eq 0 ] ;then
+		echo "VM_BACKUP_ROTATION_COUNT=$VM_BACKUP_ROTATION_COUNT" >> $FNAME.conf
+	    else
+		echo $line >> $FNAME.conf
+	    fi
+	fi
+    done < $FNAME.sample
+else
+    echo "`date` WAR $FNAME.sample not found!"
+    return 1
+fi
+return 0
+}
+
+#LOCAL_VM_BACKUP_VOLUME
+#we create a file through the NFS drive and verify it localy
+check_conf()
+{
+ID=`date`
+mkdir "$LOCAL_VM_BACKUP_VOLUME" 2>/dev/null
+chmod 777 "$LOCAL_VM_BACKUP_VOLUME"
+if [ ! $? -eq 0 ];then
+    echo "`date` WAR can't verify $VM_BACKUP_VOLUME 1"
+    return 1
+fi
+
+rm -f "$LOCAL_VM_BACKUP_VOLUME/verify" 2>/dev/null
+$CMDL "echo $ID > $VM_BACKUP_VOLUME/verify"
+if [ ! $? -eq 0 ];then
+    echo "`date` WAR can't verify $VM_BACKUP_VOLUME 2"
+    return 2
+fi
+echo "`date` INF RESULT OF WRITING FILE TO NFS SHARE: $ID == `cat $LOCAL_VM_BACKUP_VOLUME/verify`"
+
+if [ "$ID" == "`cat $LOCAL_VM_BACKUP_VOLUME/verify`" ] ;then
+    echo "`date` INF NFS mounted and operational!"
+    return 0
+else
+    echo "`date` WAR can't verify $VM_BACKUP_VOLUME 3"
+    return 3
+fi
+}
+
+#we copy the lamw scripts to the ESXi host
+copy_files()
+{
+fname="$FNAME.sh"
+sshpass -p "$VMPASSWORD" scp "$BASEPATH/$fname" "root@$VMHOST:/tmp"
+if [ ! $? -eq 0 ];then
+    echo "`date` WAR can't copy $fname"
+    return 1
+fi
+
+fname="$FNAME.conf"
+sshpass -p "$VMPASSWORD" scp "$BASEPATH/$fname" "root@$VMHOST:/tmp"
+if [ ! $? -eq 0 ];then
+    echo "`date` WAR can't copy $fname"
+    return 2
+fi
+return 0
+}
+
+#we run the lamw scripts on the ESXi host
+run_files()
+{
+echo "" -n > $TMPLOG
+#$CMDL "/tmp/$FNAME.sh -g /tmp/$FNAME.conf -m $VMGUEST -d dryrun" > $TMPLOG
+$CMDL "/tmp/$FNAME.sh -g /tmp/$FNAME.conf -m $VMGUEST" > $TMPLOG
+return $?
+}
+
+# we extract the backup name and move the backup to the top level of the directory
+ana_log_and_move()
+{
+echo "`date` INF Log of lamw script:"
+cat $TMPLOG
+newdir=`cat $TMPLOG | grep "VM_BACKUP_DIR_NAMING_CONVENTION" | cut -f 2 -d "=" | cut -f 2 -d " "`
+newdir1=`echo ${newdir//-/}`
+newdir1=`echo ${newdir1//_/}`
+#echo $newdir1
+echo "`date` INF moving $LOCAL_VM_BACKUP_VOLUME/$VMGUEST/$VMGUEST-$newdir $LOCAL_VM_BACKUP_VOLUME/$VMGUEST-$newdir"
+if [ -d "$LOCAL_VM_BACKUP_VOLUME/$VMGUEST/$VMGUEST-$newdir" ] ; then
+    mv "$LOCAL_VM_BACKUP_VOLUME/$VMGUEST/$VMGUEST-$newdir" "$LOCAL_VM_BACKUP_VOLUME/$VMGUEST-$newdir1"
+    if [ ! $? -eq 0 ];then
+	echo "`date` ERR can't move backup!"
+	return 1
+    else
+	echo "`date` INF backup moved to final destination"
+	rm -rf "$LOCAL_VM_BACKUP_VOLUME/$VMGUEST/$VMGUEST-$newdir"
+    fi
+else
+    echo "`date` ERR $LOCAL_VM_BACKUP_VOLUME/$VMGUEST/$VMGUEST-$newdir not found!"
+    return 2
+fi
+}
+
+#remove backups if there are more than defined in KEEPVERSIONS
+cleanup()
+{
+for VMGUEST in $VMLIST
+    do
+	CTR=`find $ASYNCTARGET -type d -name "${VMGUEST}-*" | wc -l`
+	echo "`date` INF Found $CTR Backups for $VMGUEST"
+	let ctr=0
+	for fn in `find $ASYNCTARGET -type d -name "${VMGUEST}-*" | sort -r`
+	do
+    	    let ctr=$ctr+1
+	    if [ $ctr -gt $KEEPVERSIONS ] ; then
+		echo "`date` INF will delete $fn"
+		rm -rf $fn
+		if [ ! $? -eq 0 ];then
+		    echo "`date` ERR can't remove backup!"
+		fi
+	    else
+		echo "`date` INF Will hold $fn"
+	    fi
+	done
+    done
+}
+
+
+#######################################################
+# main
+#######################################################
+
+
+prep_conf
+if [ ! $? -eq 0 ];then
+    echo "`date` ERR configuration invalid!"
+    rm -f $LOCKFILE
+    exit 1
+fi
+
+check_conf
+if [ ! $? -eq 0 ];then
+    echo "`date` ERR NFS mount not useable!"
+    rm -f $LOCKFILE
+    exit 2
+fi
+
+copy_files
+if [ ! $? -eq 0 ];then
+    echo "`date` ERR unable to copy scriptfiles to ESXi Host!"
+    rm -f $LOCKFILE
+    exit 3
+fi
+
+run_files
+if [ ! $? -eq 0 ];then
+    echo "`date` ERR running backup on ESXi Host!"
+    rm -f $LOCKFILE
+    exit 4
+else
+    echo "`date` INF backup success on ESXi Host!"
+fi
+
+ana_log_and_move
+if [ ! $? -eq 0 ];then
+    echo "`date` ERR moving backup to top-level position!"
+    rm -f $LOCKFILE
+    exit 5
+else
+    echo "`date` INF backup moved to top-level position."
+fi
+
+cleanup
+
+rm -f $LOCKFILE

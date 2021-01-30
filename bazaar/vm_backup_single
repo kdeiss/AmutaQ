@@ -1,0 +1,326 @@
+#! /bin/bash
+# by k.deiss@it-userdesk.de
+# backup of single machine - called by main script
+# V 0.0.1 29.9.14
+# V 0.0.2.1.10.14 paramter KEEP TARGET by script
+# V 0.0.2.22.10.14 hide passwd from log
+# V 0.0.3.1.4.15 machine specific settings implemented / deleting snapshots after bazaar failure
+# V 0.0.4.31.12.15 calculate val of backup and save this to machine specific settings
+# V 0.0.5.10.1.16 retry call to bazaarvcb in case of error
+# V 0.0.6.12.7.16 touching bazaar autolog to prevent autokill of this prog
+# V 0.0.7.28.2.17 quiescing problem solved if reboot is allowed
+# V 0.0.8.1.3.17 bugfix
+# V 0.0.9.3.3.17 allowreboot parameter added to machine specific conf
+
+#don't edit from here
+
+# this is the log file bazaar is creating automatically
+# it is monitored by control bazaar (age > 60 min will autokill this prog)
+# declaration should be moved to /etc/conf in next release 
+BAZAARLOGDIR="/opt/AmutaQ!/backup"
+BAZAARLOGFN="bazaarvcb.log"
+
+
+source /opt/AmutaQ!/etc/AmutaQ!.conf
+source /opt/AmutaQ!/lib/cfgedit.lib
+SNAPSHOTHANDLER="/opt/AmutaQ!/vmware/snapshothandler"
+SHUTDOWNHANDLER="/opt/AmutaQ!/vmware/startstopvm"
+let SHUTDOWN=0
+
+#save the size of an vm backup to machine specific conf file
+function save_size
+{
+fn="/opt/AmutaQ!/etc/$VMGUEST.conf"
+fnHisto="/opt/AmutaQ!/etc/$VMGUEST.txt"
+
+let USEDDISKSPACE=0
+let USEDDISKSPACE=$1
+
+sUSEDDISKSPACE="USEDDISKSPACE="
+
+cat $fn | grep $sUSEDDISKSPACE > /dev/null
+if [ ! $? -eq 0 ] ; then
+    echo "`date` INF First saving size value <$DIRSIZE> to $fn"
+    echo "$sUSEDDISKSPACE$USEDDISKSPACE" >> $fn
+else
+    echo "`date` INF saving size value <$DIRSIZE> to $fn"
+    primifileeditor $fn "$sUSEDDISKSPACE" "$sUSEDDISKSPACE$USEDDISKSPACE" 
+fi
+echo "`date`;$DIRSIZE" >> $fnHisto
+}
+
+
+#try to extract path from logfile
+#03:51:46,113 INF temporary destination: /mnt/bufferdisk/bazaar/Open-Audit-Appliance-20151227035143.new
+function anabazlog
+{
+if [ ! -f $BAZLOG ] ; then
+    echo "`date` WAR can't find logfile $BAZLOG"
+    return 1
+fi
+
+DEST=`cat $BAZLOG |grep "temporary destination:"`
+if [ $? -eq 0 ] ; then
+    echo "$DEST"
+    for PT in `echo "$DEST"`
+    do
+	NP=$PT
+    done
+else
+    echo "`date` WAR can't analyze logfile $BAZLOG"
+    return 1
+fi
+
+#der temporare pfad
+echo "`date` INF parsing temp path: $NP"
+#der pfad nach erfolgreichem backup
+NP1="`dirname $NP`/`basename $NP .new`"
+echo "`date` INF parsing new backup path: $NP1"
+
+if [ -d $NP1 ] ; then
+    let DIRSIZE=0
+    tmp=`du $NP1 | cut -f 1 -d "/"`
+    let DIRSIZE=$tmp
+    if [ $DIRSIZE -gt 0 ] ; then
+	echo "`date` INF size of vm is <$DIRSIZE>"
+	return 0
+    else
+	echo "`date` WAR can't get size of: $NP"
+	return 1
+    fi
+else
+    echo "`date` WAR can't get size of: $NP"
+    return 1
+fi
+}
+
+
+function getMachineSpecificValues()
+{
+fn="/opt/AmutaQ!/etc/$VMGUEST.conf"
+
+if [ -f $fn ] ;then
+    source $fn
+    echo  "`date` INF DONTRUNFROM: $DONTRUNFROM"
+    echo  "`date` INF DONTRUNTILL: $DONTRUNTILL"
+    echo  "`date` INF BAZAAREXTRAPARMS: $BAZAAREXTRAPARMS"
+
+    if [ -z $ALLOWREBOOT ] ; then
+	echo  "`date` INF adding new PARM ALLOWREBOOT=0 to $fn"
+	echo "let ALLOWREBOOT=0" >>$fn
+	let ALLOWREBOOT=0
+    fi
+    echo  "`date` INF ALLOWREBOOT: $ALLOWREBOOT"
+else
+    let DONTRUNTILL=-1
+    let DONTRUNFROM=24
+    BAZAAREXTRAPARMS=""
+    echo "let DONTRUNFROM=24" >>$fn
+    echo "let DONTRUNTILL=-1" >>$fn
+    echo "BAZAAREXTRAPARMS=" >>$fn
+    echo "let ALLOWREBOOT=0" >>$fn
+    echo  "`date` INF creating machine specific config: $fn"
+fi
+}
+
+
+function check4run()
+{
+echo "`date` INF checking time restriction for HOUR:$HOUR "
+
+if [ $DONTRUNTILL -gt $DONTRUNFROM ] ;then
+    if [ $HOUR -ge $DONTRUNFROM ]; then
+	if [ $HOUR -le $DONTRUNTILL ]; then
+	    echo "`date` INF V1 will not run - later than $DONTRUNFROM "
+	    return 1
+	fi
+    fi
+else
+    #zb 22 - 4
+    if [ $HOUR -ge $DONTRUNFROM ]; then
+	echo "`date` INF V2 will not run - later than $DONTRUNFROM "
+	return 1
+    fi
+fi
+
+
+if [ $DONTRUNTILL -ge $DONTRUNFROM ] ;then
+    if [ $HOUR -le $DONTRUNTILL ]; then
+	if [ $HOUR -ge $DONTRUNFROM ]; then
+	    echo "`date` INF V1 will not run - earlier than $DONTRUNTILL"
+	    return 1
+	fi
+    fi
+else
+    #zb 22 - 4
+    if [ $HOUR -le $DONTRUNTILL ]; then
+	echo "`date` INF V2 will not run - earlier than $DONTRUNTILL"
+	return 1
+    fi
+fi
+echo "`date` INF no time restrictions - will run"
+return 0
+}
+
+
+function testtimechecker()
+{
+let DONTRUNFROM=12
+let DONTRUNTILL=15
+echo "DONTRUNFROM: $DONTRUNFROM / DONTRUNTILL: $DONTRUNTILL"
+for i in 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23
+do 
+    let HOUR=i
+    check4run
+    #echo $?
+done
+}
+
+function err_handler()
+{
+    echo "`date` ERR finished $VMGUEST with error ($RST)"
+    echo ""
+    exit $RST
+}
+
+
+##########################################################
+#			MAIN
+##########################################################
+
+# touch bazaar autolog so that this prog can't be killed accidently
+touch $BAZAARLOGDIR/$BAZAARLOGFN
+
+VMGUEST=$1
+if [ -z $VMGUEST ] ; then
+    echo "usage $0 VMGUEST KEEPVERSIONS TARGET"
+    exit 1
+fi
+
+TARGET=$2
+if [ -z $TARGET ] ; then
+    echo "usage $0 VMGUEST KEEPVERSIONS TARGET"
+    exit 1
+fi
+
+KEEP=$3
+if [ -z $KEEP ] ; then
+    echo "usage $0 VMGUEST KEEPVERSIONS TARGET"
+    exit 1
+fi
+
+#optionaler parameter - das logfile in welchem bazaar loggt
+BAZLOG=$4
+if [ ! -z $4 ] ; then
+    echo "`date` INF using logfile $BAZLOG"
+fi
+
+
+# if nothing or zero do nothing, if 1 try to calculete the size of the backuped vm
+let MEASURE=0
+if [ ! -z $5 ] ; then
+    let MEASURE=$5
+fi
+
+
+
+#get specific settings for this machine
+getMachineSpecificValues
+
+#we can run backup now?
+let HOUR=`date +"%H" | sed -e 's/^0//g'`
+check4run
+if [ ! $? -eq 0 ] ; then
+    echo "`date` WAR $VMGUEST is currently not available for backup!"
+    exit 222
+fi
+
+
+mkdir -f $TARGET 2>/dev/null
+
+if  [ -f $TARGET/NOT_MOUNTED ] ; then
+    echo "`date` ERR target is not mounted !!"
+    let RST=22
+    err_handler
+fi
+
+C1="$BAZAARVCB backup -H $VMHOST -u $VMUSER"
+C3="$BAZAAREXTRAPARMS --consolidate --roll-out $KEEP $VMGUEST $TARGET"
+CMD="$C1 -p $VMPASSWORD $C3"
+CMD1="$C1 -p ******** $C3"
+SNH0="$SNAPSHOTHANDLER CREATE $VMGUEST"
+SNH1="$SNAPSHOTHANDLER DELETE $VMGUEST"
+SHDWN="$SHUTDOWNHANDLER STOP $VMGUEST"
+STAUP="$SHUTDOWNHANDLER START10 $VMGUEST"
+
+
+let SHUTDOWN=0
+let RST=1
+let bctr=0
+while [ ! $RST -eq 0 ] ; do
+    echo "`date` INF vm_backup_single running: $CMD1"
+    $CMD
+    RST=$?
+    echo "`date` INF vm_backup_single $RST returned from $CMD1"
+
+    # sind wir im kill/stop?
+    if [ -f $SIGNAL/stop ] ; then
+	echo "`date` INF vm_backup_single running: found stop!"
+	break
+    fi
+
+    let bctr=$bctr+1
+    if [ $bctr -gt 3 ] ; then
+	echo "`date` INF vm_backup_single break after $bctr tries"
+	#we give up
+	break
+    fi
+
+    # quiescing not possible?
+    if [ $RST -eq 10 ] ; then
+	if [ $ALLOWREBOOT -eq 1 ];then
+	    echo "`date` WAR bazaarvcb failed with errcode 10. Try to shutdown the machine."
+	    $SHDWN
+	    $STAUP &
+	    let SHUTDOWN=1
+	    let bctr=3
+	else
+	    #lets wait 5 minutes and then try again
+	    echo "`date` WAR bazaarvcb failed with errcode 10. Shutdown for machine not allowed."
+	    sleep 300
+	fi
+    else
+	if [ ! $RST -eq 0 ] ; then
+	    #lets wait 5 minutes and then try again
+	    echo "`date` WAR bazaarvcb failed with error $RST. Retry in 5 minutes."
+	    sleep 300
+	fi
+    fi
+done
+
+
+if [ ! $RST -eq 0 ] ; then
+    #if resulting in error try to delete snapshot
+    #see vmware KB 1026380
+
+    if [ ! -f $SIGNAL/stop ] ; then
+	sleep 120
+    fi
+
+    #we create snapshot and delete it immediately
+    $SNH0
+    $SNH1
+    err_handler
+else
+    #bei erfolgreichem backup und wenn das measure flag gesetzt ist
+    if [ $MEASURE -eq 1 ] ; then
+	anabazlog
+	if [ $? -eq 0 ];then
+	    save_size $DIRSIZE
+	fi
+    fi
+fi
+
+echo "`date` INF $0 finished $VMGUEST ($RST)"
+echo ""
+exit $RST

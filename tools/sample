@@ -1,0 +1,12 @@
+#! /bin/bash
+# by k.deiss@it-userdesk.de
+# V 0.0.1.1.1.17
+# sample script
+
+#don't edit from here
+
+source /opt/AmutaQ!/etc/AmutaQ!.conf
+LOG=/var/log/sample.log
+
+# echo "`date` INF Start PID:$0 $$"
+

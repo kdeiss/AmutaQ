@@ -1,0 +1,1 @@
+cat async.log |egrep "tun0 s|start co"

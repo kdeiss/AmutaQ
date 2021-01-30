@@ -1,0 +1,32 @@
+#! /bin/bash
+TD="/mnt/vmware"
+
+#umount all
+sudo vmware-mount -L
+DISKS=`vmware-mount -L`
+echo $DISKS | grep ".vmdk" 2>/dev/null > /dev/null
+if [ $? -eq 0 ] ; then
+    zenity --width=600 --height=400 --question --text "Warning: $DISKS  \n \n Going to unmount these disks. Continue?"
+    if [ $? -eq 0 ] ; then
+	#umount all
+	sudo vmware-mount -x 2> /dev/null > /dev/null 
+	sleep 1
+	sudo vmware-mount -x
+
+	if [ ! $? -eq 0 ] ; then
+	    echo "Error in umount!  -  exit 2"
+	    #ende
+	    zenity --error --text "Can't unmount VM disks!"
+	    exit 2
+	else
+	    echo "umount ok!"
+            zenity --info --text "umount ok!"
+	fi
+   #user abort
+   fi
+else
+    zenity --info --text "No mounted disk"
+fi
+
+
+

@@ -1,0 +1,48 @@
+#! /bin/bash
+
+# by k.deiss@it-userdesk.de
+# keep alive icy device
+# V 0.0.1.15.1.19
+
+
+BASEDIR=`dirname $0`
+BASEDIR="/opt/AmutaQ!"
+FNAME="icy_keepalive"
+LOG=$BASEDIR/log/$FNAME.log
+ERRLOG=$BASEDIR/log/$FNAME.log
+let VERBOSE=1
+ICYDEV="/mnt/sde1"
+
+mkdir $BASEDIR/log 2>/dev/null
+
+
+function write_icy
+{
+echo "`date` KEEPALIVE" > "$ICYDEV/$FNAME.txt"
+}
+
+
+# log handling
+touch $LOG
+let FILESIZE=$(stat -c%s $LOG)
+if [ $FILESIZE -gt 5000000 ] ; then
+    mv $LOG.1 $LOG.2 2>/dev/null
+    mv $LOG $LOG.1 2>/dev/null
+    touch $LOG
+fi
+
+
+echo "`date` INF call to $0 $1" >> $LOG
+df -h | grep $ICYDEV >/dev/null
+if [ ! $? -eq 0 ];then 
+    echo "$ICYDEV NOT MOUNTED - try mount!" >> $LOG
+    mount $ICYDEV
+    exit 1
+    echo "`date` INF exit $0" >> $LOG
+fi
+
+echo "ICYDEVICE: `df -h | grep $ICYDEV`" >> $LOG
+write_icy
+echo "`date` INF exit $0" >> $LOG
+exit 0
+

@@ -1,0 +1,48 @@
+#! /bin/bash
+# by k.deiss@it-userdesk.de
+# V 0.0.1.15.7.14 initial release 
+
+#just samples
+
+#show text in box
+TEMPFILE1="/tmp/zd$$.tmp"
+date > $TEMPFILE1
+zenity --width=800 --height=400 --text-info  --font="courier bold" --filename $TEMPFILE1
+rm -f $TEMPFILE1
+
+#yes-no
+zenity --question --text "Warning: Going to unmount these disks. Continue?"
+
+
+#progressbar
+function anaoutput()
+{
+while read line
+do
+    tmp=`echo $line | cut -f 2 -d " " | cut -f 1 -d "%"`
+    if [ ! -z $tmp ] ; then
+	let ctr=$tmp
+	echo $ctr
+    fi
+done
+}
+./testiemulator | anaoutput | zenity --width=600 height=400 --progress --auto-close --title="Restore Disk" --text="restoring $DISKRST" --percentage=0
+    if [ ! ${PIPESTATUS[0]} -eq 0 ] ; then 
+	echo "FORMAT FAILED"
+    exit 1
+
+#auswahl
+zenity --list --width=600 --height=400 --radiolist --title="Select Harddisk please" --column=select --column="Device" --column="Blocksize" --column="SERIAL" \
+FALSE sdc 2930233344 WD-WMC4N0D87TJH \
+
+
+#using the primiedit
+source /opt/AmutaQ!/lib/cfgedit.lib
+#echo "patching $CONFIGFILE will add $MPOINT"
+#primifileeditor "$CONFIGFILE" "DDDEVICELIST" "DDDEVICELIST=\"${DDDEVICELIST} $MPOINT\""
+
+#using real lines in bash
+SAVEIFS=$IFS
+IFS=$(echo -en "\n\b")
+......
+IFS=$SAVEIFS

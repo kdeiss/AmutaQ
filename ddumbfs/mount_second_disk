@@ -1,0 +1,169 @@
+#! /bin/bash
+#0.0.1.3.4.15
+# mount a second ddumbfs from commandline
+# by k.deiss@it-userdesk.de
+# 0.0.2.12.9.19 luks beta
+
+
+#######################don't edit from here ########################
+
+source /opt/AmutaQ!/etc/AmutaQ!.conf
+DDUMBVOL="/mnt/second-ddumbfs" #be carefull if changing!
+
+
+LOG="/var/log/mount_fs.log"
+source /opt/AmutaQ!/lib/mail.lib
+
+ERRTMP="/tmp/mount_fs_$$.tmp"
+LASTDEVICE="/tmp/current_backup_vol"
+
+RECLAIM="/opt/AmutaQ!/ddumbfs/reclaim"
+BACKUP2DDUMB="/opt/AmutaQ!/backup/backup2ddumb"
+INDEXDIR="/opt/AmutaQ!/indexfiles"
+let ONLYMOUNT=0
+let FORCECHECK=0
+
+
+mkdir $DDUMBVOL 2>/dev/null
+chmod 777 $DDUMBVOL
+#echo $DDUMBVOL
+
+
+function check_indexfile_date()
+{
+INDEXFN=`cat /mnt/$TARGETHD/diskinfo | grep "UUID" | cut -f 2 -d " "`
+if [ -z $INDEXFN ];then
+    echo "`date` WARNING no /mnt/$TARGETHD/diskinfo - no index saving !." | tee -a $LOG
+else
+    if [ ! -f "$INDEXDIR/$INDEXFN.idx" ] ; then
+	echo "`date` DANGER - $INDEXDIR/$INDEXFN.idx not found !" | tee -a $LOG
+    else
+        echo "`date` Checking Date of Indexfile: $INDEXFN.idx" | tee -a $LOG
+	if [ "$INDEXDIR/$INDEXFN.idx" -ot "/mnt/$TARGETHD/l0/ddumbfs/$INDEXFN.idx" ]; then
+	    echo "`date` ERR DANGER FILE ON HD NEWER !!!!!!!!!!!" | tee -a $LOG
+	    echo "`date` WAR $INDEXDIR/$INDEXFN.idx: `date -r $INDEXDIR/$INDEXFN.idx`" | tee -a $LOG
+	    echo "`date` WAR /mnt/$TARGETHD/l0/ddumbfs/$INDEXFN.idx: `date -r /mnt/$TARGETHD/l0/ddumbfs/$INDEXFN.idx`"  | tee -a $LOG
+	    echo "`date` WAR Pls copy this file back to your index directory after clearifying this issue!" | tee -a $LOG
+	    echo "`date` WAR eg cp /mnt/$TARGETHD/l0/ddumbfs/$INDEXFN.idx $INDEXDIR/$INDEXFN.idx" | tee -a $LOG
+	    echo "`date` WAR Will EXIT NOW!!!!"| tee -a $LOG
+	    
+	    #mail schicken
+	    SUBJECT="`hostname` can't start backup system"
+	    TXTFILE=$ERRTMP
+	    echo -e "`date` `hostname` Backup system not started. Log follows.">$ERRTMP
+	    tail -n 25 $LOG >>$ERRTMP
+	    send_mail
+	    TXTFILE=""
+	    exit 2
+	else	    
+	    echo "`date` INF Checking Date OK." | tee -a $LOG
+	    echo "`date` INF $INDEXDIR/$INDEXFN.idx: `date -r $INDEXDIR/$INDEXFN.idx`" | tee -a $LOG
+	    echo "`date` INF /mnt/$TARGETHD/l0/ddumbfs/$INDEXFN.idx: `date -r /mnt/$TARGETHD/l0/ddumbfs/$INDEXFN.idx`"  | tee -a $LOG
+	fi
+    fi
+fi
+}
+
+function check4check()
+{
+if [ $FORCECHECK -eq 1 ] ; then
+    echo "`date` WAR WILL NOW FORCE CHECK OF DDUMBFS!!!!"| tee -a $LOG
+    touch "/mnt/$TARGETHD/l0/ddumbfs/.autofsck"
+    if [ ! $? -eq 0 ] ; then
+	echo "`date` WAR CAN'T TOUCH /mnt/$TARGETHD/l0/ddumbfs/.autofsck"| tee -a $LOG
+    fi
+fi
+}
+
+
+echo "" | tee -a $LOG
+echo "`date` INF start mount ddumbfs." | tee -a $LOG
+
+echo  "`date` INF will only do the mount!" | tee -a $LOG
+let ONLYMOUNT=1
+let FORCECHECK=0
+
+
+if [ ! -z "$1" ];then
+    TARGETHD=$1
+    echo  "Targetdevice got from commandline: $1" | tee -a $LOG
+    let MAILFLAG=0
+    mount | grep "/mnt/$TARGETHD" 2> /dev/null > /dev/null
+    if [ $? -eq 0 ] ; then
+	echo "$TARGETHD already mounted" | tee -a $LOG
+    else
+#luks: open Crypt before mount
+        cryptdisks_start $TARGETHD 2> /dev/null > /dev/null
+	mount /mnt/$TARGETHD 2> /dev/null > /dev/null
+	if [ $? -eq 0 ] ; then
+	    echo "$TARGETHD mounted successfully!" | tee -a $LOG
+	else
+	    echo "Can't mount $TARGETHD - exit !" | tee -a $LOG
+	    exit 1
+	fi
+    fi
+
+else
+    echo  "No targetgetdevice got from commandline: $1 - exit" | tee -a $LOG
+    exit 1
+fi
+
+echo  "DDumbFS:$DDUMBVOL" | tee -a $LOG
+echo  "Target: $TARGETHD" | tee -a $LOG
+echo  "" | tee -a $LOG
+echo  "" | tee -a $LOG
+
+
+#we continue when already mounted and use the mounted disk
+mount | grep $DDUMBVOL >/dev/null
+MTRST=$? #if 1 then not mounted
+if [ $MTRST -eq 0 ] ; then
+    echo "DDUMBFS $DDUMBVOL already mounted - try to umount." | tee -a $LOG
+    mount | grep $DDUMBVOL | tee -a $LOG
+
+    umount $DDUMBVOL 2>&1 | tee -a $LOG
+
+    mount | grep $DDUMBVOL >/dev/null
+    TMP=$? #if 1 then not mounted
+
+    if [ $TMP -eq 1 ] ; then
+	echo "" | tee -a $LOG
+	echo "DDUMBFS $DDUMBVOL succesfully dismounted" | tee -a $LOG
+	date > $DDUMBVOL/NOT_MOUNTED
+    else
+	echo "Can't dismount DDUMBFS $DDUMBVOL" | tee -a $LOG
+    fi
+    exit 0
+else
+    mkdir $DDUMBVOL 2> /dev/null > /dev/null
+    chmod 777 $DDUMBVOL 2> /dev/null > /dev/null
+
+    #check whether file on usb-disk and local indexcache are the same
+    check_indexfile_date
+
+
+    #Wurde nach wenigen tagen instabil auf dem netzwerk
+    #/usr/local/bin/ddumbfs -o parent=/mnt/sde1/l0/ddumbfs/,nodio,pool=0,nofuse_default -ouse_ino,readdir_ino,default_permissions,allow_other,max_read=131072,max_write=131072,negative_timeout=0,entry_timeout=0,attr_timeout=0,nonempty /mnt/ddumbfs 2>> $LOG >> $LOG
+
+    /usr/local/bin/ddumbfs -o parent=/mnt/$TARGETHD/l0/ddumbfs/,pool=0,nofuse_default -ouse_ino,readdir_ino,default_permissions,allow_other,max_read=131072,max_write=131072,negative_timeout=0,entry_timeout=0,attr_timeout=0,nonempty $DDUMBVOL 2>&1 | tee -a $LOG
+
+    #look if ddumbfs has been mounted
+    mount | grep $DDUMBVOL >/dev/null
+    MTRST=$? #if 1 then not mounted
+    if [ ! $MTRST -eq 0 ] ; then
+	echo "DDUMBFS $DDUMBVOL not mounted !" | tee -a $LOG
+	MTRST=1
+    else
+	echo "DDUMBFS $DDUMBVOL successfully mounted !" | tee -a $LOG
+	MTRST=0
+    fi
+
+    echo "" | tee -a $LOG
+    echo "`date` mount executed." | tee -a $LOG
+    echo "" | tee -a $LOG
+    echo "" | tee -a $LOG
+fi
+
+
+echo "`date` INF stop mount ddumbfs. Exitcode $MTRST" | tee -a $LOG
+exit $MTRST

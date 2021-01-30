@@ -1,0 +1,49 @@
+#! /bin/bash
+# ESXi 5.x host automated startup/shutdown handler script
+# by k.deiss@it-userdesk.de (base script https://github.com/sixdimensionalarray/esxidown)
+# V 0.0.1.27.2.17 initial release
+# V 0.0.2.1.3.17 START10/START5 delayed startup command
+# V 0.0.3.2.3.17 retry shutdown on spawn failure
+
+
+source /opt/AmutaQ!/etc/AmutaQ!.conf
+LOG="/var/log/startstop_handler.log"
+
+# The commandline to the ESXI host
+CMDL="sshpass -p "$VMPASSWORD" ssh -o StrictHostKeyChecking=no $VMUSER@$VMHOST"
+
+# The temp mailfile
+MAILFILE="/tmp/esxi_shutdown.tmp"
+
+# MAXIMUM LOOPS TO WAIT FOR SHUTDOWN (ca. 1 min)
+let MAXTRIES=15
+
+# ------ DON'T CHANGE BELOW THIS LINE ------
+
+
+
+##########################################################
+#               main script
+##########################################################
+
+
+let VMGUSETFOUND=0
+SSVM="./startstopvm"
+
+echo "`date` INF startup $0 $1 $2"
+
+
+VMGUEST=$1
+
+USAGE="INF Usage $0 VMGUEST"
+if [ -z $VMGUEST ] ; then
+    # we need machine!
+    echo "`date` $USAGE"
+    $SSVM
+    exit 1
+else
+    echo "`date` INF Will reboot $VMGUEST"
+    $SSVM STOP $VMGUEST
+    sleep 3
+    $SSVM START $VMGUEST
+fi

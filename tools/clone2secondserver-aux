@@ -1,0 +1,169 @@
+#! /bin/bash
+# by k.deiss@it-userdesk.de
+# controls whether a backup in bufferdisk has to be cloned into a second server
+# after processing jobfile queued into AmutaQ! spooldirectory
+# /opt/AmutaQ!/tools/clone2secondserver "/tmp/$JFNWDT" CLONER4$VMGUEST >> $LOG
+
+# V 0.0.1.28.7.16
+# V 0.0.2.28.3.17 can't start guestname from WAR to INF
+# V 0.0.3.31.3.17 mv jobfile instead of copy
+# V 0.0.4.17.11.17 pause async whilst running
+# V 0.0.5.13.11.20 add mail sending on errors
+
+
+SSSCRIPT="/opt/AmutaQ!/vmware/guest_control"
+CLONELOG="/mnt/bufferdisk/RESTORE/log"
+
+MAILTMP="/tmp/clomail_$$.tmp"
+TMP2="/tmp/$$2.tmp"
+
+let MAXWAIT=120
+let MAXWAIT=360
+let MAXWAIT4CLONE=72000
+
+#don't edit from here
+
+source /opt/AmutaQ!/etc/AmutaQ!.conf
+LOG=$ASYNC_LOG
+source /opt/AmutaQ!/lib/mail.lib
+
+JOBFILE=$1
+GUESTNAME=$2
+
+# after all is done we bring the jobfile to its place 
+
+function release_asyncjob
+{
+#    cp $JOBFILE $SPOOLDIR
+    mv $JOBFILE $SPOOLDIR
+
+    if [ ! $? -eq 0 ] ; then
+	echo "`date` ERR $$ Can't queue jobfile!"
+    else
+	echo "`date` INF $$ jobfile $JOBFILE queud for async copy."
+    fi
+    rm -f "$SIGNAL/waita"
+}
+
+if [ -z $JOBFILE ] ; then
+    echo "`date` ERR $$ Jobfile is empty - usage: $0 JOBFILE GUESTNAME" 
+    exit 1
+fi
+
+if [ ! -f $JOBFILE ] ; then
+    echo "`date` ERR $$ Jobfile $JOBFILE not found - usage: $0 JOBFILE GUESTNAME" 
+    exit 1
+else
+    echo "`date` INF $$ processing jobfile $JOBFILE."
+fi
+
+if [ -z $GUESTNAME ] ; then
+    echo "`date` ERR $$ GUESTNAME empty - usage: $0 JOBFILE GUESTNAME" 
+    release_asyncjob
+    exit 1
+fi
+
+# check the lck files
+if [ -f $CLONELOG/$GUESTNAME.lck ] ; then
+    echo "`date` WAR Very strange - machine is running already?"
+#ah: send mail
+        SUBJECT="`hostname` CLONER $GUESTNAME WARNING"
+        TXTFILE=$MAILTMP
+        TXT=""
+
+        # make a report
+        echo "Serious error detected in running the Cloner for $GUESTNAME." > $TMP2
+        echo "" >> $TMP2
+        echo "Cloner was already running. Skipping Cloning" >> $TMP2
+        while read line
+        do
+            echo -e "$line" >> $MAILTMP
+        done < $TMP2
+        send_mail
+        rm -f $TMP2
+    release_asyncjob
+    exit 1
+fi
+
+# try to startup the machine
+$SSSCRIPT start $GUESTNAME
+if [ ! $? -eq 0 ] ; then
+    echo "`date` INF Can't start $GUESTNAME - maybe no clone candidate?"
+    release_asyncjob
+    exit 1
+fi
+
+# verify that the machine really was started 
+let ctr=0
+while [ $MAXWAIT -gt $ctr ]
+do
+    let ctr=$ctr+1
+    # second method to get startup
+    if [ -f $CLONELOG/$GUESTNAME.lck ] ; then
+	break
+    fi
+    sleep 2
+done
+
+ping -c 1 $GUESTNAME > /dev/null
+if [ $? -eq 0 ] ; then
+    echo "`date` INF $$ $GUESTNAME seems to be online (ping)."
+fi
+
+if [ -f $CLONELOG/$GUESTNAME.lck ] ; then
+    echo "`date` INF $$ $GUESTNAME seems to be online. $ctr/$MAXWAIT"
+else
+    echo "`date` ERR $$ something went wrong running $GUESTNAME!"
+    release_asyncjob
+#ah: send mail
+        SUBJECT="`hostname` CLONER $GUESTNAME ERROR"
+        TXTFILE=$MAILTMP
+        TXT=""
+
+        # make a report
+        echo "Serious error detected in running the Cloner for $GUESTNAME." > $TMP2
+        echo "" >> $TMP2
+        echo "Could not start the Cloner" >> $TMP2
+        while read line
+        do
+            echo -e "$line" >> $MAILTMP
+        done < $TMP2
+        send_mail
+        rm -f $TMP2
+
+    exit 1
+fi
+
+#arrived at this point we assume that cloning is running
+let ctr=0
+while [ $MAXWAIT4CLONE -gt $ctr ]
+do
+    let ctr=$ctr+1
+    date > "$SIGNAL/waita"
+    if [ ! -f $CLONELOG/$GUESTNAME.lck ] ; then
+        echo "`date` INF $$ $GUESTNAME seems to be powered off. $ctr/$MAXWAIT4CLONE"
+	release_asyncjob
+	exit 0
+    fi
+    sleep 1
+done
+
+echo "`date` ERR $$ SERIOUS $GUESTNAME still powered on. $ctr/$MAXWAIT4CLONE"
+release_asyncjob
+#ah: send mail
+        SUBJECT="`hostname` CLONER $GUESTNAME ERROR"
+        TXTFILE=$MAILTMP
+        TXT=""
+
+        # make a report
+        echo "Serious error detected in running the Cloner for $GUESTNAME." > $TMP2
+        echo "" >> $TMP2
+        echo "Cloner is still running after $MAXWAIT4CLONE Seconds" >> $TMP2
+        while read line
+        do
+            echo -e "$line" >> $MAILTMP
+        done < $TMP2
+        send_mail
+        rm -f $TMP2
+
+exit 1

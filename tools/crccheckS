@@ -1,0 +1,190 @@
+#! /bin/bash
+# by k.deiss@it-userdesk.de
+# crc check after copy to bufferdisk, this just checks the source dir and is called immediately after the source is written
+# V 0.0.1 31.12.15 initial release
+# V 0.0.2 4.1.16 bugfixing
+# V 0.0.3.12.1.16 add report in case of crc error
+# V 0.0.4.7.4.16 better log
+# V 0.0.5.19.11.17 check await 
+
+
+# don't edit from here
+# mkdir ${ASYNCTARGET}.tmp 2>/dev/null
+
+source /opt/AmutaQ!/etc/AmutaQ!.conf
+
+
+TMP="/tmp/acrc_$$.tmp"
+MAILTMP="/tmp/acrcmail_$$.tmp"
+LOG=$TMP
+#maillib includen
+source /opt/AmutaQ!/lib/mail.lib
+LOG=$ASYNC_LOG
+
+##############script killed #########################
+del_lock()
+{
+    echo "`date` $0 WARNING external signal caught, exiting (ID: $ctr)." >> $TMP
+    ex_and_clean
+}
+
+trap "del_lock ; exit 1" 2 9 15
+##############script detection#########################
+
+
+function ex_and_clean()
+{
+echo "" >> $TMP
+echo "" >> $TMP
+rm -f "$SOURCEDIR/.crc32"
+cat $TMP >> $LOG
+rm -f $TMP
+IFS=$SAVEFS
+}
+
+function check_signal()
+{
+
+# the source crc check can run always!
+
+	# Nicht bei wait stoppen - async weiterlaufen lassen! 
+	# wait nur bei expliziter waita semaphore!
+	let wctr=0
+	while [ -f $SIGNAL/waita ]
+	do
+
+	    if [ $wctr -gt 5 ] ; then 
+		let wctr=0
+	    fi
+
+	    if [ $wctr -eq 0 ] ; then 
+		echo "`date` INF $0 (ID: $ctr) waita signal found. Waiting ....." >> $LOG 
+		let wctr=0
+	    fi
+
+	    let wctr=$wctr+1
+	    sleep 60
+	done
+
+	if [ -f $SIGNAL/stop ] ; then
+	    echo "`date` INF $0 (ID: $ctr) stoped: stop is pending." >> $LOG;
+	    rm -f "$SOURCEDIR/.crc32"
+	    rm -f $TMP
+	    exit 0
+	fi
+
+	if [ -f $SIGNAL/astop ] ; then
+	    echo "`date` INF $0 (ID: $ctr) stoped: astop is pending." >> $LOG;
+	    rm -f "$SOURCEDIR/.crc32"
+	    rm -f $TMP
+	    exit 0
+	fi
+
+	if [ -f $SIGNAL/crcstopS ] ; then
+	    echo "`date` INF $0 (ID: $ctr) stoped: crcstop is pending." >> $LOG;
+	    rm -f "$SOURCEDIR/.crc32"
+	    rm -f $TMP
+	    rm -f $SIGNAL/crcstopS
+	    exit 0
+	fi
+
+return 0
+}
+
+
+if [ -z $1 ]; then
+    echo `date` "usage $0 SOURCE" | tee -a $LOG
+    exit 1
+fi
+
+
+if [ ! -d $1 ]; then
+    echo `date` "invalid source - usage $0 SOURCE" | tee -a $LOG
+    exit 1
+else
+    SOURCEDIR=$1    
+    TARGETDIR="${ASYNCTARGET}.tmp/`basename $SOURCEDIR`"
+fi
+
+
+
+ctr=$$
+RST=""
+echo -n > $TMP
+check_signal
+echo >> $TMP
+echo "`date` INF Asyncronous source-only-crc starting $SOURCEDIR. (ID:$ctr)" >> $TMP
+
+if [ -f "$SOURCEDIR/.crc32" ] ; then
+    rm -f "$SOURCEDIR/.crc32"
+fi
+echo $$ > "$SOURCEDIR/.crc32"
+#cp -s $TMP "$SOURCEDIR/.crc32"
+
+if [ -f "$SOURCEDIR/checksum.crc" ] ; then
+    rm -f "$SOURCEDIR/checksum.crc"
+fi
+
+echo "`date` INF Asuming $TARGETDIR as target. (ID:$ctr)" >> $TMP
+
+SAVEIFS=$IFS
+IFS=$(echo -en "\n\b")
+
+
+for f in `ls $SOURCEDIR`
+    do
+	check_signal
+	if [ -f "$SOURCEDIR/$f" ] ; then
+	    echo $f | grep "ASYNC.OK" > /dev/null # exclude this from crc check
+	    if [ ! $? -eq 0 ] ; then
+		echo "`date` INF start crc check for file $f (ID:$ctr)" >> $TMP
+		TRST="`nice -n -15 cksum \"$SOURCEDIR/$f\"|cut -f 1 -d \"/\"`\n"
+		if [ $? -eq 0 ] ; then
+		    RST="${RST}${f}:$TRST"
+		else
+		    echo "`date` ERR source-only-crc finished CRC check failed in cksum $f (ID:$ctr)" >> $TMP
+		    ex_and_clean
+		    exit 1
+		fi
+	    fi
+	fi
+    done
+
+printf $RST > $SOURCEDIR/checksum.crc
+
+if [ -f "$TARGETDIR/checksum.crc" ] ; then
+    # HOTFIX
+    sleep 60
+    diff -y $SOURCEDIR/checksum.crc $TARGETDIR/checksum.crc >> $TMP
+    if [ $? -eq 0 ];then
+	echo "`date` INF source-only-crc - both copies fine. Source: $SOURCEDIR (ID:$ctr)" >> $TMP
+    else
+	msg="`date` ERR CRC-ERROR source-only-crc $SOURCEDIR ==> $TARGETDIR (ID:$ctr)"
+	echo "" >> $TMP
+	echo $msg >> $TMP
+	echo "" >> $TMP
+	SUBJECT="`hostname` CRC ERROR"
+	TXTFILE=$MAILTMP
+	TXT=""
+
+	# add syste-state report
+	echo "" >> $TMP
+	echo "System state:" >> $TMP
+	$SYSREPORT >> $TMP
+	while read line
+	do
+	    echo -e "$line" >> $MAILTMP
+	done < $TMP
+	send_mail
+
+	# we mark the target as rotted!
+	date >  "$TARGETDIR/CRC-FAILURE"
+	cp $SOURCEDIR/checksum.crc $TARGETDIR/checksum_source.crc
+    fi
+fi
+
+echo "`date` INF source-only-crc finished CRC check. (ID:$ctr)" >> $TMP
+
+
+IFS=$SAVEFS
+ex_and_clean

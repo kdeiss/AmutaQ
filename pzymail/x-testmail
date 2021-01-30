@@ -1,0 +1,43 @@
+#! /bin/bash
+# V 0.0.1.9.10.14 send testmail from xserver via pyzmail
+
+LOG=/tmp/x-testmail.log
+
+source "/opt/AmutaQ!/lib/mail.lib"
+source "/opt/AmutaQ!/etc/AmutaQ!.conf"
+MAILSETUP="/opt/AmutaQ!/tools/setup_mail"
+
+
+TXT="Hostname: `hostname` \n"
+TXT="${TXT}DATE: `date`\n"
+TXT="${TXT}USER: $PZYUSER\n"
+TXT="${TXT}PORT: $PZYPORT\n"
+TXT="${TXT}SMTPHOST: $PZYHOST\n"
+TXT="${TXT}SENDMODE: $PZYMODE\n"
+TXT="${TXT}TO: $PZYTO\n"
+TXT="${TXT}FROM: $PZYFROM\n"
+TXT="${TXT}PZYDESCRIPTION: $PZYDESCRIPTION\n"
+TXT="${TXT}CALLER: $0\n"
+TXT="${TXT}VERSION: $VERSION\n"
+
+
+SUBJECT="`hostname` sample subject"
+TXTFILE=""
+#TXT="sample text"
+
+send_mail
+if [ ! $? -eq 0 ] ; then
+    echo "" >> $LOG
+    echo "" >> $LOG
+    echo "press ok to retry ...." >> $LOG
+
+    zenity --width=600 --height=350 --text-info --font="courier bold" --filename $LOG
+    if [ $? -eq 0 ] ; then 
+	rm -f $LOG
+	$MAILSETUP
+    fi
+else
+    #zenity --info --text="Mail sent succesfully!"
+    zenity --width=600 --height=350 --text-info --font="courier bold" --filename $LOG
+fi
+rm -f $LOG

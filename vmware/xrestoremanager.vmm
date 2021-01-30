@@ -1,0 +1,54 @@
+#! /bin/bash
+# menu system which alows several operations
+# requires root permission
+# by k.deiss@it-userdesk.de
+# V 0.0.1.29.9.14 
+# V 0.0.2.11.1.16 call the subprogs with gksu
+
+TD="/mnt/vmware"
+PT=`dirname $0`
+TMP1="/tmp/x-restoremanager.tmp"
+LOG="/tmp/x-restoremanager.log"
+
+PROG1="/opt/AmutaQ!/vmware/xmount"
+PROG2="/opt/AmutaQ!/vmware/xvmdk2host"
+
+MENU1="Restore backup to ESXI Server"
+MENU2="Mount backup to local filesystem"
+
+echo "`date` Call to $0 `whoami`" >> $LOG
+#echo $PT
+
+echo "PT: $PT" | tee -a $LOG
+echo "P1: $1" | tee -a $LOG
+echo "P2: $1" | tee -a $LOG
+echo "P3: $1" | tee -a $LOG
+echo "P4: $1" | tee -a $LOG
+
+
+cd $PT
+
+
+SELECTION=`zenity --list --width=600 --height=400 --radiolist --title="What do you want to do with this backup" --column="Select" --column="Action" \
+ FALSE "$MENU1" TRUE "$MENU2"`
+
+if [ "$SELECTION" == "$MENU1" ] ; then
+    echo "ESXI"
+    echo "`date` Call to $PROG2 $1"  >> $LOG
+    gksu $PROG2
+fi
+
+if [ "$SELECTION" == "$MENU2" ] ; then
+    echo "MOUNT"
+    echo "`date` Call to $PROG1 $1 "-" $PT"  >> $LOG
+    gksu $PROG1 $1 $PT 
+fi
+
+echo "`date` Exit $0 ($?)" >> $LOG
+
+#echo $SELECTION
+#echo press key
+#read anser
+exit 0
+
+

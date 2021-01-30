@@ -1,0 +1,128 @@
+#! /bin/bash
+# by k.deiss@it-userdesk.de
+# V 0.0.1.27.9.14
+# V 0.0.2.30.9.14 reformatting
+# V 0.0.3.8.10.14 display extended statistics
+# V 0.0.4.22.12.15 call to backupcount script
+# V 0.0.5.11.1.16 df -hl
+# V 0.0.6.22.3.17 check ddumbfs for corupted files and add this information to the report
+# V 0.0.7.26.3.17 extended reporting via vm_patch_report (which is called after diskchange)
+# V 0.0.8.4.10.19 kd rm reportfiles from /tmp
+# V 0.0.9.9.10.19 ah df remove local-flag for nfs volumes
+
+# creates statistic before disk switch
+# call: $BACKUPREPORT $GWAITCTR $ASYNCBACKUPCTR $TOTALBACKUPCTR $TOTALBACKUPWITHERRORCTR
+
+#don't edit from here
+
+
+source /opt/AmutaQ!/etc/AmutaQ!.conf
+source /opt/AmutaQ!/lib/discident.lib
+LOG="/var/log/reclaim.log"
+LISTBACKUPS="/opt/AmutaQ!/bazaar/vm_list_backups"
+LISTDEFFILES="/opt/AmutaQ!/ddumbfs/check4corruptedfiles"
+PLACEHOLDER1="------------------------------"
+
+
+tmp="/tmp/report_$$.tmp"
+tmp2="/tmp/report_list_$$.tmp"
+
+RAWDF=`df -hl| grep ddumbfs`
+#echo $RAWDF
+#PERCENTAGE=`echo $RAWDF | cut -c 6-9`
+#DISK=`echo $RAWDF | cut -c 44-48`
+PERCENTAGE=`echo $RAWDF | cut -f 5 -d " "`
+DISK=`echo $RAWDF | cut -f 1 -d " "`
+CAP=`echo $RAWDF | cut -f 2 -d " "`
+USED=`echo $RAWDF | cut -f 3 -d " "`
+FREE=`echo $RAWDF | cut -f 4 -d " "`
+
+#find the base HD
+TMP1=`echo "$RAWDF" |  cut -f 1 -d " "`
+#echo "1 $TMP1"
+TMP2=`dirname $TMP1`
+TMP2=`dirname $TMP2`
+TARGETHD=`basename $TMP2`
+
+#ah remove local flag and add non-ddumb filesystems for nfs volume
+TARGETHD1=`df -h -text4 -tnfs4| grep /mnt/$TARGETHD`
+#echo $TARGETHD1
+PERCENTAGE1=`echo $TARGETHD1 | cut -f 5 -d " "`
+DISK1=`echo $TARGETHD1 | cut -f 1 -d " "`
+CAP1=`echo $TARGETHD1 | cut -f 2 -d " "`
+USED1=`echo $TARGETHD1 | cut -f 3 -d " "`
+FREE1=`echo $TARGETHD1 | cut -f 4 -d " "`
+
+SPACE=`du -h $DDUMBVOL | tail -n 1|cut -f 1 -d "/"`
+
+
+echo -n "" >>$tmp
+echo "Statistic for deduplicated filesystem" >>$tmp
+echo "Used (du): $SPACE" >>$tmp
+echo "Capacity : $CAP" >>$tmp
+echo "Phy.used : $USED" >>$tmp
+echo "Available: $FREE" >>$tmp
+echo "$PERCENTAGE used on disk" >>$tmp
+echo "" >>$tmp
+
+# usage echo "HDD `trans-discnames $i` could be removed."
+echo "Statistic for physical disk `trans-discnames $TARGETHD`." >>$tmp
+echo "Capacity : $CAP1" >>$tmp
+echo "Phy.used : $USED1" >>$tmp
+echo "Available: $FREE1" >>$tmp
+echo "$PERCENTAGE1 used on disk" >>$tmp
+echo "" >>$tmp
+
+# here later the disc change stats
+echo $PLACEHOLDER1 >>$tmp
+echo "" >>$tmp
+
+$LISTDEFFILES >> $tmp
+echo "" >> $tmp
+
+if [ ! -z $3 ] ; then
+    echo "Since last switch the system made $3 backups." >>$tmp
+fi 
+
+if [ ! -z $2 ] ; then
+    echo "$2 backups are CRC checked." >>$tmp
+fi 
+
+if [ ! -z $4 ] ; then
+    if [ $4 -gt 0 ] ;then
+	echo "$4 Backup(s) resulted in error." >>$tmp
+    else
+	echo "No errors were detected during backup." >>$tmp
+    fi
+fi 
+
+
+if [ ! -z $1 ] ; then
+    if [ $1 -gt 0 ] ;then
+	echo "System was waiting $1 s for async backups. Try to increase PARANOIMODE value." >>$tmp
+    fi
+fi 
+
+# countbackupcontrol 12/2015
+$0_countbackups $tmp
+
+echo "" >>$tmp
+
+$0_bufferdisk $tmp
+
+echo "" >>$tmp
+echo "" >>$tmp
+
+
+$LISTBACKUPS >> $tmp2
+echo "Available Backups for $VMLIST: `wc -l $tmp2|cut -f 1 -d " "`" >>$tmp
+echo "" >>$tmp
+cat $tmp2 >> $tmp
+#echo "" >> $tmp
+#echo "" >> $tmp
+#echo "$VERSION" >> $tmp
+
+
+rm -f $tmp2
+cat $tmp
+rm -f $tmp

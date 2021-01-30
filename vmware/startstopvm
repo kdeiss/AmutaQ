@@ -1,0 +1,306 @@
+#! /bin/bash
+# ESXi 5.x host automated startup/shutdown handler script
+# by k.deiss@it-userdesk.de (base script https://github.com/sixdimensionalarray/esxidown)
+# V 0.0.1.27.2.17 initial release
+# V 0.0.2.1.3.17 START10/START5 delayed startup command
+# V 0.0.3.2.3.17 retry shutdown on spawn failure
+
+
+source /opt/AmutaQ!/etc/AmutaQ!.conf
+LOG="/var/log/startstop_handler.log"
+
+# The commandline to the ESXI host
+CMDL="sshpass -p "$VMPASSWORD" ssh -o StrictHostKeyChecking=no $VMUSER@$VMHOST"
+
+# The temp mailfile
+MAILFILE="/tmp/esxi_shutdown.tmp"
+
+# MAXIMUM LOOPS TO WAIT FOR SHUTDOWN (ca. 1 min)
+let MAXTRIES=15
+
+# ------ DON'T CHANGE BELOW THIS LINE ------
+
+
+
+##########################################################
+#               main script
+##########################################################
+
+
+let VMGUSETFOUND=0
+let POWERSTATE=0
+
+echo "`date` INF startup $0 $1 $2"
+
+
+ACTION=$1
+VMGUEST=$2
+
+USAGE="INF Usage $0 START|STOP|STOP5|STOP10|SHOW|STATUS VMGUEST"
+if [ -z $ACTION ] ; then
+    #no args just show
+    ACTION="SHOW"
+    echo "`date` INF No action specified - will execute SHOW machine and status!"
+    echo "`date` $USAGE"
+else
+    if [ -z $VMGUEST ] ; then
+        #if action is specified we need machine!
+	echo "`date` $USAGE"
+        exit 1
+    else
+        echo "`date` INF Will execute $ACTION $VMGUEST"
+    fi
+fi
+
+
+function start_vm()
+{
+SERVERIDS=$($CMDL vim-cmd vmsvc/getallvms | sed -e '1d' -e 's/ \[.*$//'|awk '{ printf "%s-%s\n",$1,$2 }'  )
+if [ ! -z "$SERVERIDS" ] ; then
+    for i in $SERVERIDS
+    do
+        echo $i | grep "$VMGUEST" > /dev/null
+        if [ $? -eq 0 ];then
+            let VMGUSETFOUND=1
+            echo "`date` INF Found machine with VID: $i"
+            SRVID=`echo $i | cut -f 1 -d "-"`
+            ESXICMDRST=`$CMDL vim-cmd vmsvc/power.getstate $SRVID`
+            STATUS=$?
+
+            if [ $? -eq 0 ];then
+                echo "`date` INF Powerstate($STATUS): OFF"
+                let POWERSTATE=0
+            fi
+
+            echo $ESXICMDRST | grep "Powered on" > /dev/null
+            if [ $? -eq 0 ];then
+                echo "`date` INF Powerstate($STATUS): ON"
+                echo "`date` INF machine already running - exiting"
+                let POWERSTATE=1
+                return 1
+            fi
+        fi
+        if [ $VMGUSETFOUND -eq 1 ] ; then
+            break
+        fi
+    done
+else
+    echo "`date` ERR Can't get serverids / access ESXi Host"
+    return 2
+fi
+
+
+if [ $VMGUSETFOUND -eq 1 ] ; then
+    ESXICMDRST=`$CMDL vim-cmd vmsvc/power.on $SRVID`
+    STATUS=$?
+    if [ $STATUS -eq 0 ];then
+        echo $ESXICMDRST
+        echo "`date` INF VM guest started!"
+    else
+        echo "`date` ERR can't start VM: $ESXICMDRST"
+    fi
+    return 0
+else
+    echo "`date` ERR Can't find VMGUEST ${VMGUEST}???"
+    return 3
+fi
+}
+
+
+function stop_vm()
+{
+SERVERIDS=$($CMDL vim-cmd vmsvc/getallvms | sed -e '1d' -e 's/ \[.*$//'|awk '{ printf "%s-%s\n",$1,$2 }'  )
+if [ ! -z "$SERVERIDS" ] ; then
+    for i in $SERVERIDS
+    do
+        echo $i | grep "$VMGUEST" > /dev/null
+        if [ $? -eq 0 ];then
+            let VMGUSETFOUND=1
+            echo "`date` INF Found machine with VID: $i"
+            SRVID=`echo $i | cut -f 1 -d "-"`
+            ESXICMDRST=`$CMDL vim-cmd vmsvc/power.getstate $SRVID`
+            STATUS=$?
+
+            echo $ESXICMDRST | grep "Powered off" > /dev/null
+            if [ $? -eq 0 ];then
+                echo "`date` INF Powerstate($STATUS): OFF"
+                echo "`date` INF machine not running - exiting"
+                let POWERSTATE=0
+                return 1
+            fi
+
+            echo $ESXICMDRST | grep "Powered on" > /dev/null
+            if [ $? -eq 0 ];then
+                echo "`date` INF Powerstate($STATUS): ON"
+                let POWERSTATE=1
+            fi
+        fi
+        if [ $VMGUSETFOUND -eq 1 ] ; then
+            break
+        fi
+    done
+else
+    echo "`date` ERR Can't get serverids / access ESXi Host"
+    return 2
+fi
+
+
+if [ $VMGUSETFOUND -eq 1 ] ; then
+    ESXICMDRST=`$CMDL vim-cmd vmsvc/power.shutdown $SRVID`
+    STATUS=$?
+    if [ $STATUS -eq 0 ];then
+        echo "`date` INF VM guest shutdown cmd spawned: $ESXICMDRST"
+        checkshut
+        STATUS=$?
+        if [ $STATUS -eq 0 ];then
+            return 0
+        else
+            echo "`date` ERR can't shutdown - TIMEOUT!"
+        fi
+    else
+        # if we come out here we can try it second time before poweroff!
+        echo "`date` WAR can't spawn shutdown ($STATUS): $ESXICMDRST"
+        echo "`date` INF retry in 120 seconds"
+	sleep 120
+	ESXICMDRST=`$CMDL vim-cmd vmsvc/power.shutdown $SRVID`
+	STATUS=$?
+	if [ $STATUS -eq 0 ];then
+    	    echo "`date` INF VM guest shutdown cmd spawned: $ESXICMDRST"
+    	    checkshut
+    	    STATUS=$?
+    	    if [ $STATUS -eq 0 ];then
+        	return 0
+    	    else
+        	echo "`date` ERR can't shutdown - TIMEOUT!"
+    	    fi
+	else
+    	    # if we come out here we can try to poweroff the machine!
+    	    echo "`date` ERR again unable to spawn shutdown ($STATUS): $ESXICMDRST"
+	fi
+    fi
+else
+    echo "`date` ERR Can't find VMGUEST ${VMGUEST}???"
+    return 3
+fi
+
+if [ $VMGUSETFOUND -eq 1 ] ; then
+    ESXICMDRST=`$CMDL vim-cmd vmsvc/power.off $SRVID`
+    STATUS=$?
+    if [ $STATUS -eq 0 ];then
+        echo "`date` INF VM guest poweroff cmd spawned: $ESXICMDRST"
+        checkshut
+        STATUS=$?
+        return $STATUS
+    else
+        echo "`date` ERR can't spawn poweroff ($STATUS): $ESXICMDRST"
+        return 4
+    fi
+else
+    echo "`date` ERR Can't find VMGUEST ${VMGUEST}???"
+    return 3
+fi
+
+}
+
+function checkshut
+{
+    let VMSTAT=1
+    let VMDOWNTRIES=0
+    while [ $VMSTAT -eq 1 ]
+    do
+        let VMDOWNTRIES=$VMDOWNTRIES+1
+        show_vm
+        STOPRST=$?
+        if [ $STOPRST -eq 0 ] ; then
+            echo "`date` INF VM guest stoped!"
+            let VMSTAT=0
+            return 0
+        fi
+        if [ $STOPRST -gt 1 ] ; then
+            echo "`date` INF VM statusquery resulted in error!"
+            let VMSTAT=0
+            return 1
+        fi
+
+        if [ $VMDOWNTRIES -gt $MAXTRIES ];then
+            echo "`date` INF VM TIMEOUT statusquery!"
+            return 2
+        fi
+
+        echo "`date` INF waiting for shutdown ($VMDOWNTRIES)"
+        sleep 35
+    done
+}
+
+
+function show_vm()
+{
+SERVERIDS=$($CMDL vim-cmd vmsvc/getallvms | sed -e '1d' -e 's/ \[.*$//'|awk '{ printf "%s-%s\n",$1,$2 }'  )
+if [ ! -z "$SERVERIDS" ] ; then
+    for i in $SERVERIDS
+    do
+        echo $i | grep "$VMGUEST" > /dev/null
+        if [ $? -eq 0 ];then
+            echo "`date` INF Found machine with VID: $i"
+            SRVID=`echo $i | cut -f 1 -d "-"`
+            ESXICMDRST=`$CMDL vim-cmd vmsvc/power.getstate $SRVID`
+            STATUS=$?
+            #echo "`date` INF $ESXICMDRST"
+            echo $ESXICMDRST | grep "Powered off" > /dev/null
+            if [ $? -eq 0 ];then
+                echo "`date` INF Powerstate($STATUS): OFF"
+                let POWERSTATE=0
+            fi
+
+            echo $ESXICMDRST | grep "Powered on" > /dev/null
+            if [ $? -eq 0 ];then
+                echo "`date` INF Powerstate($STATUS): ON"
+                let POWERSTATE=1
+            fi
+        fi
+    done
+else
+    echo "`date` ERR Can't get serverids / access ESXi Host"
+    return 2
+fi
+return $POWERSTATE
+}
+
+
+
+
+case $ACTION in
+    START)
+        start_vm
+        let RST=$?
+        ;;
+    START5)
+	sleep 300
+        start_vm
+        let RST=$?
+        ;;
+    START10)
+	sleep 600
+        start_vm
+        let RST=$?
+        ;;
+    STOP)
+        stop_vm
+        let RST=$?
+        ;;
+    SHOW)
+        show_vm
+        let RST=$?
+        ;;
+    STATUS)
+        show_vm
+        let RST=$?
+        ;;
+    *)
+    echo "`date` ERR Invalid action selected!"
+    let RST=4
+esac
+
+echo "`date` INF $0 exit $RST"
+exit $RST
+

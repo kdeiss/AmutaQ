@@ -1,0 +1,42 @@
+#! /bin/bash
+# by k.deiss@it-userdesk.de
+# V 0.0.1.7.3.17
+# V 0.0.2.27.7.18 fix
+# monitoring wait command / deleting if is out of softswitch
+
+#don't edit from here
+
+source /opt/AmutaQ!/etc/AmutaQ!.conf
+LOG=/var/log/dauerbackup.log
+
+# echo "`date` INF Start PID:$0 $$"
+
+#check for softswitch
+function checksoftswitch
+{
+if [ -f "$SIGNAL/softswitch" ] ; then 
+    exit 0
+fi
+}
+
+#check for wait
+function checkwait
+{
+if [ -f "$SIGNAL/wait" ];then
+    return 0
+fi
+return 1
+}
+
+checksoftswitch
+checkwait
+if [ $? -eq 0 ]; then
+    #lets wait wheter softswitch appears next 5 minutes
+    sleep 300
+    checksoftswitch
+else
+    exit 0
+fi
+
+echo "`date` INF wait signal found - will remove it!" >> $LOG
+rm -f "$SIGNAL/wait"

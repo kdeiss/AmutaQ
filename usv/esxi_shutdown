@@ -1,0 +1,100 @@
+#! /bin/bash
+# ESXi 5.x host automated shutdown script 
+# by k.deiss@it-userdesk.de (base script https://github.com/sixdimensionalarray/esxidown)
+# V 0.0.1.05.07.17 initial release
+# V 0.0.2.06.11.19 ah: add CONFIG to use different config-files if we don't want to shutdown all servers
+# V 0.0.3.11.11.19 ah: when no shutdown then only call -aux once
+#			check different command parameter cases
+# V 0.0.4.31.12.20 kd/ah bugfix detecting process already running
+
+#TODO: stop backup immediately before shutdown
+
+CONFIG="/opt/AmutaQ!/etc/AmutaQ!.conf"
+LOG="/var/log/esxi_shutdown.log"
+
+##############script detection#########################
+LOCKFILE=/tmp/$(basename $0).lck
+
+if [ -f $LOCKFILE ] ; then
+    SPID=`cat $LOCKFILE`
+#    ps -e | grep $SPID >> /dev/null
+    ps -o cmd -p $SPID |grep `basename $0` >> /dev/null
+    if [ $? -eq 0 ] ; then
+	echo "`date` INF $0 already running"
+	exit 1
+    else
+	echo "`date` WAR $0 has lockfile but is not running!" >> $LOG
+    fi
+fi
+
+
+del_lock()
+{
+    echo "`date` $0 WARNING external signal caught, exiting" >> $LOG
+    rm -f $LOCKFILE
+}
+
+trap "del_lock ; exit 1" 2 9 15
+echo $$ > $LOCKFILE
+##############script detection#########################
+
+
+if [ -z $1 ] ;then
+    echo "`date` WAR $0 EVENTID ADDITIONALINFO" | tee -a $LOG
+    rm -f $LOCKFILE
+    exit 1
+fi
+
+SDMSG=`echo $1| cut -f 1 -d " "` 		#this is the msg the calling program is sending
+ADDITIONALINFO=`echo $1| cut -f 2 -d " "`	#second parm from caller, e.g. time
+if [ "$1" = "$ADDITIONALINFO" ] ; then
+    ADDITIONALINFO=$2
+fi
+
+echo "" | tee -a $LOG
+echo "----------------------------------------------------------" | tee -a $LOG
+echo "`date` INF start $0 $SDMSG $ADDITIONALINFO" | tee -a $LOG
+
+if [ -f $CONFIG.0 ];then 
+    let f=0
+    if [ "$SDMSG" == "SHUTDOWN" ] ; then #in case of shutdown use all confs
+	let ct=10
+    elif [ "$SDMSG" == "Event0" ] ; then
+	let ct=10
+    else			# when no shutdown then only call -aux once
+	let ct=1
+    fi
+    while [ $f -lt $ct ];do
+	if [ -f $CONFIG.$f ];then
+	    CONF="$CONFIG.$f"
+	    let g=$f+1
+
+	    if [ -f $CONFIG.$g ];then
+		let LOCALSHUTDOWN=0
+	    else
+		let LOCALSHUTDOWN=1
+	    fi
+
+	    if [ $f -eq 0 ] ;then
+		echo "`date` INF calling $0-aux $CONF $LOCALSHUTDOWN $SDMSG $ADDITIONALINFO" | tee -a $LOG
+		$0-aux $CONF $LOCALSHUTDOWN $SDMSG $ADDITIONALINFO
+	    else
+		# SIMULATION
+		echo "`date` INF calling $0-aux $CONF $LOCALSHUTDOWN $SDMSG $ADDITIONALINFO" | tee -a $LOG
+		$0-aux $CONF $LOCALSHUTDOWN $SDMSG $ADDITIONALINFO
+	    fi
+	else
+	    break
+	fi
+	let f=$f+1
+    done
+else
+    CONF=$CONFIG
+    let LOCALSHUTDOWN=1
+    $0-aux $CONF $LOCALSHUTDOWN $SDMSG $ADDITIONALINFO
+fi
+
+echo "`date` INF finish $0" | tee -a $LOG
+echo "----------------------------------------------------------" | tee -a $LOG
+echo "" | tee -a $LOG
+rm -f $LOCKFILE

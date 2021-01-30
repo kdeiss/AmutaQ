@@ -1,0 +1,142 @@
+#! /bin/bash
+# by k.deiss@it-userdesk.de
+# make statistics for the ddumbfs filesystem, calculate optimal value for the amounts of backups
+# V 0.0.1.23.12.15 initial release 
+# V 0.0.2.29.12.15 fixing output
+# V 0.0.3.11.1.16 df -hl
+# V 0.0.4.26.12.19 ah: remove diskspecifics-file, when not filled enough
+# V 0.0.5.28.12.19 ah: new calculation of Versions to keep
+
+#maximal akzeptierter Fuellstand
+let FILLMAX=85
+
+source /opt/AmutaQ!/etc/AmutaQ!.conf
+
+#wenm dieser wert erreicht wird beginnt der mechanismus 
+let STARTCONTROL=$FILLMAX-5
+
+#die berechneten werte fuer maximal anzahl von backups
+DISCSPECIFICKEEPS=$ASYNCTARGET/KEEPVERSIONS
+
+
+if [ -f $1 ] && [ ! -z $1 ] ; then
+    LOG=$1
+    let LOCALLOG=0
+else
+    LOG="/tmp/countbackups.tmp"
+    echo -n "" > $LOG
+    let LOCALLOG=1
+fi
+
+
+echo "Automatic space control" >> $LOG
+
+#in case we have rotation config
+function countvm
+{
+for VMCTRTEMP in $VMLIST
+    do
+        let ctr=$ctr+1
+	let vmusage=`du -s $VMBACKUPTARGET/$VMCTRTEMP | cut -f 1`
+	let allvmusage=$allvmusage+vmusage
+    done
+}
+
+
+let i=0
+let ctr=0
+let allvmusage=0
+
+if [ -f /opt/AmutaQ!/etc/AmutaQ!.conf.$i ];then
+    echo "This system is backing up multiple ESXi Hosts - rotation config found." >> $LOG
+    let i=0
+    while [ $i -lt 10 ];do
+	if [ -f /opt/AmutaQ!/etc/AmutaQ!.conf.$i ];then
+	    source /opt/AmutaQ!/etc/AmutaQ!.conf.$i
+	    countvm
+	fi
+	let i=$i+1
+    done
+else
+    countvm
+fi
+
+echo "$ctr VM's to backup" >> $LOG
+
+let actr=0
+for RSTSTRING in `df -l | grep $DDUMBVOL`
+    do
+        if [ $actr -eq 1 ] ; then
+            let CAPACITY=`echo $RSTSTRING`
+            #echo RSTSTRING: $RSTSTRING
+        fi
+        if [ $actr -eq 2 ] ; then
+            let USED=`echo $RSTSTRING`
+            #echo RSTSTRING: $RSTSTRING
+        fi
+        if [ $actr -eq 4 ] ; then
+            let PERCENTAGE=`echo $RSTSTRING|cut -f 1 -d %`
+            #echo RSTSTRING: $RSTSTRING
+        fi
+        let actr=$actr+1
+    done
+echo "TARGET $DDUMBVOL is filled to $PERCENTAGE%" >> $LOG
+#ah: use ls instead of find (performance on NFS)
+#ANZBACKUP=`find $ASYNCTARGET -type d 2>/dev/null |wc -l`
+ANZBACKUP=`ls $ASYNCTARGET/* -d | wc -w`
+echo "$ANZBACKUP Backups found on $ASYNCTARGET" >> $LOG>> $LOG
+
+let AVERAGE=$ANZBACKUP/$ctr
+
+echo "Global value Keep Versions is set to: $KEEPVERSIONSONFINALTARGET" >> $LOG
+if [ -f  $DISCSPECIFICKEEPS ] ;then
+    source  $DISCSPECIFICKEEPS
+    echo "Automatic space control is active! Will hold maximum of: $KEEPVERSIONSONFINALTARGET copies per VM." >> $LOG
+fi
+
+let A=$AVERAGE*$FILLMAX
+let B=$A/$PERCENTAGE
+
+#ah: new calc of kept versions
+#( (capacity*fillmax)-allvmusage ) / ( (used-allvmusage) / ((anzbackup-ctr)/ctr) )
+echo $USED
+echo $allvmusage
+echo $ANZBACKUP
+echo $ctr
+let used_deltas=$USED-$allvmusage
+let average_deltas=($ANZBACKUP-$ctr)/$ctr
+let usage_per_delta=$used_deltas/$average_deltas
+let capacity_for_deltas=($CAPACITY*$FILLMAX/100)-$allvmusage
+let new_B=$capacity_for_deltas/$usage_per_delta
+
+let B=new_B
+
+echo "Recommended value is: $B" >> $LOG
+
+
+	if [ $PERCENTAGE -gt $STARTCONTROL ] ;then
+if [ ! $B -eq $KEEPVERSIONSONFINALTARGET ] ; then
+	    #wenn die disk mehr als 3 releasestände erlaubt tun wir das - ansonsten warnen wir den admin
+	    if [ $B -gt 3 ] ;then
+		echo KEEPVERSIONSONFINALTARGET=$B > $DISCSPECIFICKEEPS
+		echo "Adjusting value for disc specific value to $B" >> $LOG
+	    else
+		echo "Please call the support - this Disk seems to too small for the amount of your data - $B copies is unacceptable!" >> $LOG
+	    fi
+fi	
+	else
+	    echo "This disc is not filled enough. Will start adjusting if data occupies more than $STARTCONTROL%." >> $LOG
+#ah: remove diskspecifics-file, when not filled enough
+	    if [ -f $DISCSPECIFICKEEPS ]; then
+		echo "removing file for disc specific value" >> $LOG
+		rm $DISCSPECIFICKEEPS
+	    fi
+
+	fi	
+
+
+
+if [ $LOCALLOG -eq 1 ] ; then
+    cat $LOG
+    rm $LOG
+fi

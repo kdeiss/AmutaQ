@@ -1,0 +1,15 @@
+#! /bin/bash
+
+# by k.deiss@it-userdesk.de
+# AmutaQ autoupdater
+# V 0.0.1.30.3.17
+
+# crontab sample
+# 0 15 * * * /opt/AmutaQ!/tools/update
+
+source /opt/AmutaQ!/etc/AmutaQ!.conf
+
+BF=`basename $0`
+cp $0-aux /tmp
+# ls -la /tmp/$BF-aux
+/tmp/$BF-aux

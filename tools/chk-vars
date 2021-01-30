@@ -1,0 +1,102 @@
+#! /bin/bash
+# by k.deiss@it-userdesk.de
+# V 0.0.1.16.7.19
+# check and add needed vars in amutaq!.conf
+
+#don't edit from here
+
+source /opt/AmutaQ!/etc/AmutaQ!.conf
+LOG=$RSYNC_LOG
+
+
+
+#check vars
+function checkvars
+{
+if [ -f /opt/AmutaQ!/etc/AmutaQ!.conf.0 ];then 
+    let f=0
+    while [ $f -lt 100 ];do
+	if [ -f /opt/AmutaQ!/etc/AmutaQ!.conf.$f ];then
+	    source /opt/AmutaQ!/etc/AmutaQ!.conf.$f
+	    echo "`date` INF Found config AmutaQ!.conf.$f"
+	fi
+	let f=$f+1
+    done
+else
+    echo "`date` INF This system is backing up only one ESXi Server!"
+fi
+}
+
+
+# checks that we have a required var in our configuration file
+# adds default value if needed
+
+function addvar
+{
+var=$1
+val=$2
+comment=$3
+
+#echo $var
+#echo $val
+#echo $comment
+
+if [ -z "$var" ];then
+    echo "`date` ERR addvar 1 var value comment!" >> $LOG;
+    return 1
+fi
+
+if [ -z "$val" ];then
+    echo "`date` ERR addvar 2 var value comment!" >> $LOG;
+    return 2
+fi
+
+if [ -z "$comment"  ];then
+    echo "`date` ERR addvar 3 var value comment!" >> $LOG;
+    return 3
+fi
+
+if [ ! -f /opt/AmutaQ!/etc/AmutaQ!.conf ];then
+    echo "`date` ERR FATAL no valid config!" >> $LOG;
+    return 4
+fi
+
+if [ -f /opt/AmutaQ!/etc/AmutaQ!.conf.0 ];then 
+    addvaraux /opt/AmutaQ!/etc/AmutaQ!.conf "$var" "$val" "$comment"
+    let f=0
+    while [ $f -lt 100 ];do
+	if [ -f /opt/AmutaQ!/etc/AmutaQ!.conf.$f ];then
+	    addvaraux /opt/AmutaQ!/etc/AmutaQ!.conf.$f "$var" "$val" "$comment"
+	    let f=$f+1
+	else
+	    break
+	fi
+    done
+else
+    addvaraux /opt/AmutaQ!/etc/AmutaQ!.conf "$var" "$val" "$comment"
+fi
+}
+
+function addvaraux
+{
+fn=$1
+var=$2
+val=$3
+comment=$4
+grep "$var=" $fn >/dev/null
+if [ ! $? -eq 0 ];then
+#    echo "`date` var $var already included" #>> $LOG;
+#else
+    echo "" >> $fn
+    echo "`date` will add var $var!" >> $LOG;
+    echo "#$comment" >> $fn
+    echo "$var=$val" >> $fn
+fi
+}
+
+#########################################
+# sample calls 
+#########################################
+
+#checkvars
+#addvar "testvar" "1" "this is a comment regarding var testvar"

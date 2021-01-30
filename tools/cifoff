@@ -1,0 +1,35 @@
+#! /bin/bash
+# enable/disable internal network
+
+# V 0.0.1.15.11.19 initial release 
+
+
+# CIFACTIVE=1 
+# CIFINTERNALNET=eth1
+
+#don't edit from here
+
+ifmsg="/tmp/ifmsg.tmp"
+
+source "/opt/AmutaQ!/etc/cif.conf"
+
+if [ $CIFACTIVE -eq 0 ] ; then
+    echo "`date` WAR ControlInterface is always active. Edit /opt/AmutaQ!/etc/cif.conf to enable control."
+    exit 1
+fi
+
+
+if [ -z $CIFINTERNALNET ] ; then
+    echo "`date` ERR CIFINTERNALNET has no value! Edit /opt/AmutaQ!/etc/cif.conf."
+    exit 2
+else
+    /sbin/ifdown $CIFINTERNALNET 2>$ifmsg
+    cmsg=`cat $ifmsg`
+    if [ ! -z "$cmsg" ];then
+	echo "`date` ERR can't deactivate $CIFINTERNALNET ($cmsg)"
+    else
+	echo "`date` INF deactivated successfully $CIFINTERNALNET"
+    fi
+fi
+
+rm -f $ifmsg

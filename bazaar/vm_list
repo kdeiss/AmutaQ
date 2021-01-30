@@ -1,0 +1,39 @@
+#! /bin/bash
+# by k.deiss@it-userdesk.de
+# V 0.0.1 1.5.14
+# list VMs with details on ESXI server
+
+#don't edit from here
+
+source /opt/AmutaQ!/etc/AmutaQ!.conf
+
+SAVEIFS=$IFS
+IFS=$(echo -en "\n\b")
+
+let lctr=0
+for line in `$BAZAARVCB listvm -H $VMHOST -u $VMUSER -p $VMPASSWORD`
+do
+    let lctr=$lctr+1
+    if [ $lctr -gt 1 ];then
+	echo $line
+	SM=`echo $line | tr -s " " | cut -f 3 -d " "`
+	if [ -z $ML ] ; then
+	    ML=$SM
+	else
+	    ML="$ML $SM"
+	fi
+    fi
+done
+IFS=$SAVEIFS
+echo "$ML found on ESXI Host $VMHOST"
+echo ""
+
+#$BAZAARVCB listvm -H $VMHOST -u $VMUSER -p $VMPASSWORD
+
+for VMGUEST in $ML
+do
+    echo "connecting $VMHOST as $VMUSER for queryvm $VM_GUEST ....."
+    $BAZAARVCB queryvm -H $VMHOST -u $VMUSER -p $VMPASSWORD $VMGUEST
+done
+
+exit

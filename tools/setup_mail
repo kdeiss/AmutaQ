@@ -1,0 +1,52 @@
+#! /bin/bash
+# V 0.0.1.9.10.14 edit mail config
+
+
+CONFIGFILE=/opt/AmutaQ!/etc/pzymail.conf
+
+
+#don't edit from here
+
+TESTOOL="/opt/AmutaQ!/pzymail/x-testmail"
+
+SAVEIFS=$IFS
+IFS=$(echo -en "\n\b")
+
+
+if [ -f $CONFIGFILE ] ; then
+    source $CONFIGFILE
+fi
+#set -x
+if [ -f $CONFIGFILE ] ; then
+    CONFIG=`zenity --width=600 --height=400 --editable --text-info --font="courier bold" --filename $CONFIGFILE`
+else
+    CONFIG=`zenity --width=600 --height=400 --editable --text-info --font="courier bold" --filename ${CONFIGFILE}.sample`
+fi
+
+if [ $? -eq 0 ] ; then
+    rm -f $CONFIGFILE
+    for line in $CONFIG
+	do
+	    echo $line
+	    let lctr=$lctr+1
+	    if [[ ${line:0:1} == "#" ]] && [ $lctr -gt 1 ] ; then 
+		    echo "" >> ${CONFIGFILE}
+	    fi
+	    echo $line >> ${CONFIGFILE}
+    done
+
+    zenity --width=400 --question --text="Do you want to test your settings now ?"
+    if [ $? -eq 0 ] ; then
+	$TESTOOL
+    fi
+fi
+
+IFS=$SAVEIFS
+
+
+
+
+#read kex
+
+#exit
+

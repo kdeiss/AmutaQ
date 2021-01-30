@@ -1,0 +1,441 @@
+#! /bin/bash
+# by k.deiss@it-userdesk.de
+# V 0.0.1.1.5.14
+# V 0.0.2.3.5.14 check for sufficient disk space
+# V 0.0.3.6.5.14 check crc (source vs. target)
+# V 0.0.4.14.7.14 check crc32 via PARANOIMODE
+# V 0.0.5.17.7.14 Errorhandling in case ddumbfs is not available
+# V 0.0.6.10.9.14 Paranoiamode can be int > 1 - in this case every n crc32
+# V 0.0.7.1.10.14 Paranoiamode moved to central backup
+# V 0.0.8.5.10.14 Delete target on rsync error
+# V 0.0.9.22.12.15 waita - wait stopt nur das backup - waita auch das async
+# V 0.0.10.27.12.15 Loeschen des SOURCE folders auf Bufferdisk nur wenn Bufferdisk unter 95% geht (see BUFDISKMAX4FOREAUTODELTE)
+# V 0.0.11.4.1.16 Umstellung von rsync auf cp (test performance) / bugfixing /logausgabe
+# V 0.0.12.10.1.16 crc checker running in background
+# V 0.0.13.10.1.16 ALLOWCRCINBACKGROUND makes crc target background check selectable
+# V 0.0.14.10.1.16 ALLOWCRCSOURCEINBACKGROUND makes crc source background check selectable
+# V 0.0.15.11.1.16 clean exit - signaling OK for async allways
+# V 0.0.16.11.1.16 bugfix await signal
+# V 0.0.17.12.1.16 make copy selectable via RSYNCFLAG
+# V 0.0.19.25.7.16 bugfix (mkdir async.tmp)
+# V 0.0.20.30.7.16 check ONLY for ASYNC* jobs in spooldir
+# V 0.0.21.28.2.17 skip crc check (via signalfile)
+# V 0.1.0.27.3.17 check_bufferdisk / bugfix
+# V 0.1.1.18.5.17 enable remote disk via nfs
+# V 0.1.2.19.11.17 check await in copy routine
+# V 0.1.3.23.9.19 in case of underlaying nfs target measure nettraffic after cp with external tool
+# V 0.1.4.09.10.20 ah: measure new blocks used in ddumbfs
+# V 0.1.5.31.12.20 kd/ah bugfix detecting process already running
+
+LV="0.1.5.31.12.20"
+
+# if 1 we start CRC check completly in background
+# Note this is faster but may cause a very high I/O on your (usb?) device
+let ALLOWCRCINBACKGROUND=0
+let ALLOWCRCSOURCEINBACKGROUND=0
+
+# we copy with rsync (=1) or with cp (=0)
+let RSYNCFLAG=0
+
+
+let BUFDISKMAX4FOREAUTODELTE=95 #if Buffer has less than this we delete it directly after this job here is done
+#don't edit from here
+
+let PARANOIAMODE=0
+TMP="/tmp/$$.tmp"
+ERRTMP="/tmp/ERR_$$.tmp"
+date > $ERRTMP
+date > $TMP
+
+LOG=$TMP
+source /opt/AmutaQ!/etc/AmutaQ!.conf
+source /opt/AmutaQ!/lib/common.lib
+source /opt/AmutaQ!/lib/mail.lib
+LOG=$ASYNC_LOG
+SD=""
+
+#SPACECTRL="/opt/AmutaQ!/tools/rm_old"
+
+#if crc is not wished use the dummy functions instead
+if [ -f $SIGNAL/skipcrc ] ; then
+    CRCCHECKER="/opt/AmutaQ!/tools/crccheck-dummy"
+    CRCCHECKERS="/opt/AmutaQ!/tools/crccheckS-dummy"
+else
+    CRCCHECKER="/opt/AmutaQ!/tools/crccheck"
+    CRCCHECKERS="/opt/AmutaQ!/tools/crccheckS"
+fi
+
+NETTRAFFICMEASURE="/opt/AmutaQ!/tools/measure_transfer"
+
+##############script detection#########################
+LOCKFILE=/tmp/$(basename $0).lck
+# [ -f $LOCKFILE ] && { echo "`date` INF $0 already running" >> $LOG; exit 1; }
+# [ -f $LOCKFILE ] && { exit 1; }
+
+if [ -f $LOCKFILE ] ; then
+    SPID=`cat $LOCKFILE`
+#    ps -e | grep $SPID >> /dev/null
+    ps -o cmd -p $SPID |grep `basename $0` >> /dev/null
+    if [ $? -eq 0 ] ; then
+        exit 1
+    else
+        echo "`date` WAR $0 has lockfile but is not running!" >> $LOG
+    fi
+fi
+
+
+del_lock()
+{
+    echo "`date` $0 WARNING external signal caught, exiting" >> $LOG
+    cleanexit 1
+}
+
+trap "del_lock ; exit 1" 2 9 15
+echo $$ > $LOCKFILE
+##############script detection#########################
+
+
+
+#########################################################
+#                       functions                       #
+#########################################################
+
+function check_signal()
+{
+        # Nicht bei wait stoppen - async weiterlaufen lassen!
+        # wait nur bei expliziter waita semaphore!
+        let wctr=0
+        while [ -f $SIGNAL/waita ]
+        do
+
+            if [ $wctr -gt 5 ] ; then
+                let wctr=0
+            fi
+
+            if [ $wctr -eq 0 ] ; then
+                echo "`date` INF $0 (ID: $ctr) waita signal found. Waiting ....." >> $LOG
+                let wctr=0
+            fi
+
+            let wctr=$wctr+1
+            sleep 60
+        done
+
+
+        if [ -f $SIGNAL/switch ] ; then
+            killprocs
+            echo "`date` INF $0 (ID: $ctr) stoped: switch is pending." >> $LOG;
+            cleanexit 1
+        fi
+
+        if [ -f $SIGNAL/stop ] ; then
+            killprocs
+            echo "`date` INF $0 (ID: $ctr) stoped: stop is pending." >> $LOG;
+            cleanexit 1
+        fi
+
+        if [ -f $SIGNAL/astop ] ; then
+            killprocs
+            echo "`date` INF $0 (ID: $ctr) stoped: astop is pending." >> $LOG;
+            cleanexit 1
+        fi
+
+return 0
+}
+
+function killprocs()
+{
+    pslist="crccheckS crccheck cksum"
+    ps -e > $TMP
+    for i in $pslist ; do
+        cat $TMP | grep " $i" > /dev/null
+        if [ $? -eq 0 ];then
+            echo "`date` INF try to kill $i!" >> $LOG
+            killall -9 $i 2>&1
+        else
+            echo "`date` INF no instance of $i running" >> $LOG
+        fi
+    done
+}
+
+
+function cleanexit()
+{
+let erst=0
+let erst=$1
+
+# in any case we have to signal OK
+if [ -d $SD ] && [ ! -z $SD ] ; then
+    date > "$SD/ASYNC.OK"
+fi
+
+rm -f $TMP
+rm -f $ERRTMP
+rm -f $LOCKFILE
+exit $erst
+}
+
+
+function check_bufferdisk
+{
+VMBACKUPDEVTMP=`dirname $VMBACKUPTARGET`
+VMBACKUPDEV=`mount | grep $VMBACKUPDEVTMP |cut -f 1 -d " "`
+let n=0
+let PERC=100
+for RSTSTRING in `df -hl | grep $VMBACKUPDEV`
+    do
+        if [ $n -eq 4 ] ; then
+            let PERC=`echo $RSTSTRING|cut -f 1 -d %`
+        fi
+        let n=$n+1
+    done
+    return $PERC
+}
+
+
+#set rights to backup directories - so that NFS servers have full access
+function setvmrights()
+{
+S1=$1
+
+if [ -z $S1 ] ; then
+    echo "`date` ERR unable to set rights in >$S1< - invalid argument to function!" >> $LOG
+    return 1
+fi
+
+if [ -d $S1 ];then
+    echo "`date` INF setting NFS rights for ESXI server in $S1." >> $LOG
+    #rights for vmware
+    chown nobody -R $S1/
+    chgrp nogroup -R $S1/
+    chown nobody $S1
+    chgrp nogroup $S1
+    chmod 777 $S1
+    return 0
+else
+    echo "`date` ERR unable to set rights in $S1 - invalid directory" >> $LOG
+    return 1
+fi
+}
+
+function copy_files
+{
+SD=$1
+TD=$2/`basename $SD`
+cmd=$3
+
+mkdir $TD 2> /dev/null
+
+#hotfix 9/17
+$NETTRAFFICMEASURE >> $LOG;
+
+#ah 9/10/20: measure new blocks used in ddumbfs
+let DDUMBBLOCKS1=`cat /mnt/ddumbfs/.ddumbfs/stats |grep block_allocated |tr -s " " | cut -f 2 -d " "`
+
+if [ $RSYNCFLAG -eq 1 ] ; then
+    # we do the copy with rsync
+    echo "`date` INF start copy with (ID: $ctr) - command: $cmd" >> $LOG;
+    $cmd 2>> $LOG >> $LOG;
+    if [ ! $? -eq 0 ] ; then
+        echo "`date` ERR copy $fna (ID: $ctr)" >> $LOG
+        rm -rf "$TD" 2>> $LOG >> $LOG
+        if [ $? -eq 0 ] ; then
+            echo "`date` INF deleted target $TD (ID: $ctr)" >> $LOG
+        else
+            echo "`date` ERR can't even delete target $TD - maybe terget is offline (ID: $ctr)" >> $LOG
+        fi
+        return 1
+    fi
+    #hotfix 9/17
+    $NETTRAFFICMEASURE >> $LOG;
+
+else
+    # hotfix DDUMBFS on NFS
+    chmod 777 $TD 2>> $LOG
+
+    # we do the copy with cp
+    for fna in `ls -rt $SD`
+    do
+        echo "`date` INF copy file $fna (ID: $ctr)" >> $LOG
+        # hotfix DDUMBFS on NFS
+        #cp -a $SD/$fna $TD/$fna 2>> $LOG
+        touch $TD/$fna 2>> $LOG
+        sleep 1
+        chmod 666 $TD/$fna 2>> $LOG
+        sleep 1
+        cp $SD/$fna $TD/$fna 2>> $LOG
+        if [ ! $? -eq 0 ] ; then
+            echo "`date` ERR copy $fna (ID: $ctr)" >> $LOG
+            rm -rf "$TD" 2>> $LOG >> $LOG
+            if [ $? -eq 0 ] ; then
+                echo "`date` INF deleted target $TD (ID: $ctr)" >> $LOG
+            else
+                echo "`date` ERR can't even delete target $TD - maybe terget is offline (ID: $ctr)" >> $LOG
+            fi
+            return 1
+        fi
+
+        # check whether there are external events
+        check_signal
+
+        #hotfix 9/17
+        $NETTRAFFICMEASURE >> $LOG;
+    done
+fi
+
+#ah 9/10/20: measure new blocks used in ddumbfs
+let DDUMBBLOCKS2=`cat /mnt/ddumbfs/.ddumbfs/stats |grep block_allocated |tr -s " " | cut -f 2 -d " "`
+let DDUMBBLOCKS=$DDUMBBLOCKS2-$DDUMBBLOCKS1
+BASENAME=`basename $SD`
+VMGUEST=${BASENAME%-*}
+echo "`date`;`cat /tmp/current_backup_vol`;$DDUMBBLOCKS" >> "/opt/AmutaQ!/etc/$VMGUEST.blk"
+
+
+# we remove the source if bufferdisk is filled > XX%
+check_bufferdisk
+PBUFDISK=$?
+echo "`date` INF TARGET $VMBACKUPDEV is filled to $PBUFDISK%" >> $LOG;
+if [ $PBUFDISK -gt $BUFDISKMAX4FOREAUTODELTE ] ;then
+    echo "`date` INF removing source rm -rf $SD. Bufferdisk overfull!" >> $LOG;
+    rm -rf "$SD" >> $LOG
+else
+    if [ $ALLOWCRCSOURCEINBACKGROUND -eq 1 ] ; then
+        # we call the source-crc-checker here - after files have been copied!
+        $CRCCHECKERS $SD &
+        echo "`date` INF $CRCCHECKERS running in background with PID $! (ID: $ctr)" >> $LOG;
+    fi
+
+    sleep 60
+    check_signal
+    S1BN=`basename $SD`
+
+    if [ $ALLOWCRCINBACKGROUND -eq 1 ] ; then
+        echo "`date` INF launching $CRCCHECKER $SD ${ASYNCTARGET}.tmp/$S1BN (ID: $ctr)" >> $LOG;
+        $CRCCHECKER $SD ${ASYNCTARGET}.tmp/$S1BN &
+        echo "`date` INF $CRCCHECKER running in background with PID $! (ID: $ctr)" >> $LOG;
+    else
+        echo "`date` INF launching $CRCCHECKER $SD ${ASYNCTARGET}.tmp/$S1BN (ID: $ctr)" >> $LOG;
+        $CRCCHECKER $SD ${ASYNCTARGET}.tmp/$S1BN
+        echo "`date` INF $CRCCHECKER done! (ID: $ctr)" >> $LOG;
+    fi
+fi
+
+date > "$SD/ASYNC.OK"
+echo "`date` INF copied succesfully $SD (ID: $ctr)" >> $LOG
+return 0
+}
+
+
+#########################################################
+#                       MAIN                            #
+#########################################################
+
+
+ctr=`date +%s`
+let FFLAG=0
+
+let JOBINSPOOL=0
+JOBINSPOOL=`ls -rt $SPOOLDIR/ASYNC* 2>/dev/null| wc -l `
+
+if [ $JOBINSPOOL -gt 0 ];then
+    echo "">>"$LOG"
+    echo "`date` INF $0 version $LV">>"$LOG"
+fi
+
+while [ $JOBINSPOOL -gt 0 ];do
+    echo "`date` INF found $JOBINSPOOL job(s) to process." >> $LOG
+    let FFLAG=1
+
+
+    for f in `ls -rt $SPOOLDIR/ASYNC*`
+    do
+        # if we search with pattern we have to cut of the path to make it compatible to earlier versions!
+        f=`basename $f`
+        echo "`date` INF processing Jobfile $SPOOLDIR/$f.">>"$LOG"
+        # check whether ddumbfs is mounted - it makes absolute no sense to continue if there is no ddumbfs
+        let c4dm=1
+        while [ ! $c4dm -eq 0 ] ; do
+            check4ddmount
+            c4dm=$?
+            if [ ! $c4dm -eq 0 ] ; then
+                echo "`date` ERR check4ddmount returns $c4dm! - can't continue!">>"$LOG"
+            else
+                echo "`date` INF check4ddmount returns $c4dm! - ddumbfs useable.">>"$LOG"
+            fi
+        done
+
+
+        cmd=`cat $SPOOLDIR/$f`
+        echo "" >> $LOG;
+        mkdir "${ASYNCTARGET}.tmp" 2>/dev/null
+        chmod 777 "${ASYNCTARGET}.tmp"
+
+#       echo "`date` INF start copy with (ID: $ctr) - command: $cmd" >> $LOG;
+#       $cmd 2>> $LOG >> $LOG;
+
+#       wechsel auf kopierroutine statt rsync 1/16
+        SD=`echo $cmd| cut -f 3 -d " "`
+        TD=`echo $cmd| cut -f 4 -d " "`
+        S1BN=`basename $SD`
+
+        # check whether there are external events
+        check_signal
+
+        echo "`date` INF start copy of $SD (ID: $ctr)" >> $LOG;
+        copy_files "$SD" "$TD" "$cmd"
+        if [ $? -eq 0 ];then
+            echo "`date` INF copy to $TD (ID: $ctr ) done." >> $LOG;
+            if [ ! -z $SD ] ; then
+
+                # set rights for vmware
+                setvmrights "${ASYNCTARGET}.tmp/$S1BN"
+
+                # cleanup
+                rm -f $SPOOLDIR/$f
+                break
+            else
+                # should never occur!
+                echo "`date` ERR invalid SOURCE!" >> $LOG;
+                break
+            fi
+        else
+            #copy  results in error
+            msg="`date` ERR error during final copy $S1BN (ID: $ctr)."
+            echo $msg >> $LOG;
+            rm -f $SPOOLDIR/$f
+            SUBJECT="`hostname` ERROR during final copy"
+            TXTFILE=$ERRTMP
+            echo -e $msg>$ERRTMP
+            echo -e "Command was: $cmd">>$ERRTMP
+            echo -e "">>$ERRTMP
+            echo -e "">>$ERRTMP
+            tail -n 18 $LOG >>$ERRTMP
+            send_mail
+            TXTFILE=""
+
+            # delete target if it exists
+            if [ ! -z "${ASYNCTARGET}.tmp/$S1BN" ] && [ -d "${ASYNCTARGET}.tmp/$S1BN" ] ; then
+                echo "`date` INF try removing failed copy." >> $LOG;
+                rm -rf "${ASYNCTARGET}.tmp/$S1BN"
+                if [ $? -eq 0 ];then
+                    echo "`date` INF succesgully removed ${ASYNCTARGET}.tmp/$S1BN" >> $LOG;
+                else
+                    echo "`date` ERR even removing ${ASYNCTARGET}.tmp/$S1BN failed - serious problem!" >> $LOG;
+                fi
+            fi
+
+            # even the copy failed, this semaphoere is just signaling backup_single_machine that it has been processed!
+            date > "$SD/ASYNC.OK"
+            break
+        fi
+    done
+JOBINSPOOL=`ls -rt $SPOOLDIR/ASYNC* 2>/dev/null| wc -l `
+sleep 1
+done
+
+
+if [ $FFLAG -eq 1 ] ; then
+    echo "`date` INF removing $LOCKFILE" >> $LOG;
+    echo "" >> $LOG;
+fi
+cleanexit 0

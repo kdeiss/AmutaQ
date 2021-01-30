@@ -1,0 +1,22 @@
+
+# 30 0,18 * * * /opt/AmutaQ!/backup/signal/switch.sh
+*/5 * * * * /opt/AmutaQ!/backup/asynccopy 2>>/var/log/async.log>>/var/log/async.log
+0 0 * * * /opt/AmutaQ!/tools/logrotate
+*/5 * * * * /opt/AmutaQ!/backup/control_bazaar
+*/3 * * * * /opt/AmutaQ!//tools/create-cpu-stat
+0 * * * * /opt/AmutaQ!//tools/create-cpu-stat-h
+#0 4 * * * /usr/bin/touch /opt/AmutaQ!/backup/signal/wait #Stop Backup Cycle - Sytem remains active
+0 0 * * * /bin/rm -f /opt/AmutaQ!/backup/signal/wait #Start Backup
+0 16 * * * /bin/rm -f /opt/AmutaQ!/backup/signal/wait #Start Backup
+# 0 4 * * * /usr/bin/touch /opt/AmutaQ!/backup/signal/waita #Stop Async Backup Cycle - Sytem remains active
+# 0 20 * * * /bin/rm -f /opt/AmutaQ!/backup/signal/waita #Start Async Backup
+
+
+# if you want to run a permanent backup
+# 0,30 * * * * /opt/AmutaQ!/tools/dauerbackup
+# update the AmutaQ system automatically
+# 0 15 * * * /opt/AmutaQ!/tools/update
+# usefull if you are using hardware crc disc (e.g. icy)
+# * * * * * /opt/AmutaQ!/tools/icy_keepalive
+# check the hardware of your esxi hosts (only HP servers!)
+# 0 17 * * * /opt/AmutaQ!/tools/check_hardware

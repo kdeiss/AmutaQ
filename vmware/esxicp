@@ -1,0 +1,4 @@
+# Restore script
+mkdir "/vmfs/volumes/Datastore0/RESTORE/"
+if [ -d "/vmfs/volumes/Datastore0/RESTORE/" ] ; then
+fi

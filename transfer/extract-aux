@@ -1,0 +1,141 @@
+#! /bin/bash
+# by k.deiss@it-userdesk.de
+# V 0.0.1.8.5.17
+# use 7z to rebuild vm which has been transferred to this AmutaQ!
+
+LOG="/var/log/syncftp.log"
+
+
+source /opt/AmutaQ!/etc/AmutaQ!.conf
+source /opt/AmutaQ!/lib/mail.lib
+
+
+SIGNALFINISH="COMPRESSION_FINISHED"
+SIGNALNOSWITCH="donotswitch"
+SIGNALRUNNING="COMPRESSION_RUNNING"
+QUEUEFILE="TRANSFERQUEUE"
+TRANSFERFINISH="TRANSFER_FINISHED"
+TRANSFERRUNNING="TRANSFER_RUNNING"
+
+MSGFILE="/tmp/$$.tmp"
+DELIMITER="------------------------------------------------"
+
+QN="TS-2012-HB-WHAUS"
+Q="/mnt/bufferdisk/bazaar/rtransfer" # source file directory
+T="/mnt/bufferdisk/bazaar/TS-2012-HB-WHAUS"
+
+function sig-err
+{
+elvl="$1"
+echo "`date` ERR exit with error $elvl"
+SUBJECT="`hostname` `date` ERROR - Autobackup of remote machine failed with $elvl"
+TXTFILE="$MSGFILE"
+make-rtreport
+send_mail
+exit $elvl
+}
+
+function setvmrights
+{
+chmod 666 $T/*
+chmod 777 $T/
+return $?
+}
+
+
+function make-rtreport
+{
+echo "Virtual machine `cat $Q/$TRANSFERFINISH` transfered to local host." > "$MSGFILE"
+echo "Please check whether is functional." >> "$MSGFILE"
+echo "" >> "$MSGFILE"
+echo "$DELIMITER " >> "$MSGFILE"
+echo "" >> "$MSGFILE"
+ls -la $T >> "$MSGFILE"
+echo "" >> "$MSGFILE"
+echo "$DELIMITER " >> "$MSGFILE"
+echo "" >> "$MSGFILE"
+ls -la $Q >> "$MSGFILE"
+echo "" >> "$MSGFILE"
+echo "$DELIMITER " >> "$MSGFILE"
+echo "" >> "$MSGFILE"
+tail -n 10 $LOG >> "$MSGFILE"
+}
+
+
+
+##################################################################
+##########  MAIN SCRIPT
+##################################################################
+
+
+
+echo "`date` INF Startup $0"
+if [ ! -f $Q/$TRANSFERFINISH ];then
+    echo "`date` INF nothing to do missing $Q/$TRANSFERFINISH"
+    exit 0
+fi
+
+# find original filenames
+opath=`cat $Q/$TRANSFERFINISH`
+ofname=`basename $opath`
+
+echo "`date` INF original path was: $opath"
+
+if [ -z $T ];then
+    sig-err 0
+fi
+
+rm -rf $T 2>/dev/null
+mkdir $T 2>/dev/null
+cd $T
+if [ ! $? -eq 0 ];then
+    echo "`date` WAR can't access $T"
+    sig-err 1
+fi
+
+arc="$Q/$QN.7z.001"
+echo "`date` INF Starting 7z for $arc"
+7z x $arc
+RST=$?
+
+cd $T/$ofname
+if [ ! $? -eq 0 ];then
+    echo "`date` WAR can't access $T/$ofname"
+    sig-err 2
+fi
+
+mv $T/$ofname/* $T/
+if [ ! $? -eq 0 ];then
+    echo "`date` WAR can't move $T/$ofname to final destination $T"
+    sig-err 3
+fi
+
+setvmrights
+if [ ! $? -eq 0 ];then
+    echo "`date` WAR can't set rights to final destination $T"
+    sig-err 4
+fi
+
+# send out mail
+TXT=""
+if [ $RST -eq 0 ];then
+    SUBJECT="`hostname` `date` Autobackup of remote machine ok."
+    TXTFILE="$MSGFILE"
+    make-rtreport
+    send_mail
+    rm -f $Q/$TRANSFERFINISH 2>/dev/null
+    rm -f $Q/$TRANSFERRUNNING 2>/dev/null
+    rm -f $Q/$SIGNALFINISH 2>/dev/null
+    rm -f $Q/$SIGNALRUNNING 2>/dev/null
+else
+    SUBJECT="`hostname` `date` ERROR - Autobackup of remote machine failed."
+    TXTFILE="$MSGFILE"
+    make-rtreport
+    send_mail
+fi
+TXTFILE=""
+#cat $MSGFILE
+rm -f $MSGFILE
+
+echo "`date` INF $0 done - 7zip exitcode $RST"
+exit $RST

@@ -1,0 +1,13 @@
+#! /bin/bash
+# by k.deiss@it-userdesk.de
+# acces every esxi host and write a testsquence to bufferdisk
+# V 0.0.1 19.7.18
+
+
+
+#don't edit from here
+
+
+source /opt/AmutaQ!/etc/AmutaQ!.conf
+
+/opt/AmutaQ!/lamw/vm_backup_single DATEV-2016 /mnt/bufferdisk/bazaar 1 /tmp/3556_bazaar.log 1

@@ -1,0 +1,490 @@
+#! /bin/bash
+#0.2.30.4.14
+#0.3.1.5.14 exitcode
+#0.4.15.7.14 call to the backuproutine
+#0.5.9.9.14 scope of RST buggy
+#0.6.10.9.14 flexible mount even if hdds missing
+#0.7.29.9.14 moving path to /opt/AmutaQ!
+#0.8.14.10.14 check date if index files
+#0.9.17.4.15 make reclaim thread startable or not / noautostart signal file for fixing errors in fs
+#0.9.18.31.3.15 bugfix
+#0.10.1.25.3.17 better output / detecting RO filesystem
+#0.11.0.10.5.17 enable nfs based ddumbfs
+#0.12.0.12.9.19 ah luks beta
+#0.13.0.3.10.19 ah do not skip crccheck if noskipcrc if found on NFS-Volume
+#0.14.0.4.10.19 kd sending out mail if foreseen device (hdd/nfs) could not be selected
+#0.15.1.5.10.19 ah move check of mounted ddumb before mount another hdd
+#0.15.2.10.10.19 ah check if smbd running before restarting to avoid errors
+#0.15.3.20.22.19 ah fix output (WAR not DANGER)
+#0.15.4.25.09.20 ah crypt: add support for derived key
+#0.15.5.28.10.20 ah crypt: bugfix open crypt
+#0.15.6.23.11.20 ah fix when using nfs4
+#0.15.7.10.12.20 only reload NFS-Server, not hard restart
+#0.15.8.31.12.20 kd/ah bugfix detecting process already running(check4amu)
+
+#######################don't edit from here ########################
+
+source /opt/AmutaQ!/etc/AmutaQ!.conf
+
+LOG="/var/log/mount_fs.log"
+source /opt/AmutaQ!/lib/mail.lib
+source /opt/AmutaQ!/lib/discident.lib
+
+
+ERRTMP="/tmp/mount_fs_$$.tmp"
+LASTDEVICE="/tmp/current_backup_vol"
+
+let STARTRECLAIM=0 #set this to 0 if you don't wan't to start reclaim thread
+RECLAIM="/opt/AmutaQ!/ddumbfs/reclaim"
+BACKUP2DDUMB="/opt/AmutaQ!/backup/backup2ddumb"
+INDEXDIR="/opt/AmutaQ!/indexfiles"
+let ONLYMOUNT=0
+let FORCECHECK=0
+let AMURUNNING=0 #whether AmutaQ is ruinning or not
+
+FILESYS=""
+
+echo "" >$ERRTMP
+
+# hotfix 5/17
+function findfstype
+{
+FILESYS=`mount | grep "/mnt/$TARGETHD "`
+if [ ! -z "$FILESYS" ] ; then
+    FILESYS=`echo "$FILESYS" | cut -f 5 -d " "`
+    if [ "$FILESYS" == "nfs4" ]; then
+	FILESYS="nfs"
+    fi
+    echo "`date` INF type of underlying filesystem is $FILESYS" | tee -a $LOG
+
+    if [ "$FILESYS" == "nfs" ];then
+        if [ ! -f "/mnt/$TARGETHD/l0/ddumbfs/.autofsck" ];then
+	    echo "`date` INF because fs is type NFS we disable check of ddumbfs ...." | tee -a $LOG
+	    let FORCECHECK=0
+	elif [ $FORCECHECK -eq 1 ]; then
+	    echo "`date` INF will force check of ddumbfs on NFS ...." | tee -a $LOG
+	fi
+	#ah do crccheck on nfs if noskipcrc is found. We need to look in ddfsroot because ddumb is not mounted yet
+	if [ -f "/mnt/$TARGETHD/l0/ddumbfs/ddfsroot/bazaar/noskipcrc" ] ; then
+	    echo "`date` INF do not skip crc on NFS volume because of disk signal" | tee -a $LOG
+	    if [ -f $SIGNAL/skipcrc ] ; then
+	        cat $SIGNAL/skipcrc | grep "NFS" >/dev/null
+	        if [ $? -eq 0 ] ; then
+		    echo "`date` INF removing signalfile skipcrc because last disk was NFS based ddumbfs" | tee -a $LOG
+		    rm -f $SIGNAL/skipcrc
+	        else
+		    echo "`date` INF manual signal skipcrc found. Leave it untouched" | tee -a $LOG
+		fi
+	    fi
+	else
+	    if [ ! -f $SIGNAL/skipcrc ] ; then
+	        echo "`date` INF creating signalfile skipcrc - crc check not possible on NFS volumes" | tee -a $LOG
+	        echo "NFSUNDERLAYING" > $SIGNAL/skipcrc
+	    fi
+	fi
+    else
+	if [ -f $SIGNAL/skipcrc ] ; then
+	    cat $SIGNAL/skipcrc | grep "NFS" >/dev/null
+	    if [ $? -eq 0 ] ; then
+		echo "`date` INF removing signalfile skipcrc because last disk was NFS based ddumbfs" | tee -a $LOG
+		rm -f $SIGNAL/skipcrc
+	    else
+		echo "`date` INF manual signal skipcrc found. Leave it untouched" | tee -a $LOG
+	    fi
+	fi
+    fi
+else
+    echo "`date` WAR Can't detect underlying filesystem" | tee -a $LOG
+fi
+}
+
+function check4physddumbfs
+{
+MT=`mount |grep ddumbfs|cut -f 1 -d " "`
+MT=`dirname $MT`
+MT=`dirname $MT`
+var=`basename $MT`
+trans-discnames $var
+}
+
+function check4amu
+{
+LOCKFILE=/tmp/$(basename $BACKUP2DDUMB).lck
+if [ -f $LOCKFILE ] ; then
+    SPID=`cat $LOCKFILE`
+#    ps -e | grep $SPID >> /dev/null
+    ps -o cmd -p $SPID |grep `basename $BACKUP2DDUMB` >> /dev/null
+    if [ $? -eq 0 ] ; then
+	echo "`date` INF $BACKUP2DDUMB running with PID $SPID" | tee -a $LOG
+	return 1
+    else
+#	echo "" >> $LOG
+	echo "`date` WAR $BACKUP2DDUMB has lockfile but is not running!" | tee -a $LOG
+    fi
+else
+    echo "`date` INF $BACKUP2DDUMB not running." | tee -a $LOG
+fi
+}
+
+
+
+function check_indexfile_date()
+{
+INDEXFN=`cat /mnt/$TARGETHD/diskinfo | grep "UUID" | cut -f 2 -d " "`
+if [ -z $INDEXFN ];then
+    echo "`date` WAR no /mnt/$TARGETHD/diskinfo - no index saving !." | tee -a $LOG
+else
+    if [ ! -f "$INDEXDIR/$INDEXFN.idx" ] ; then
+	echo "`date` WAR - $INDEXDIR/$INDEXFN.idx not found !" | tee -a $LOG
+    else
+        echo "`date` INF Checking Date of Indexfile: $INDEXFN.idx" | tee -a $LOG
+	if [ "$INDEXDIR/$INDEXFN.idx" -ot "/mnt/$TARGETHD/l0/ddumbfs/$INDEXFN.idx" ]; then
+	    echo "`date` ERR DANGER FILE ON HD NEWER !!!!!!!!!!!" | tee -a $LOG
+	    echo "`date` WAR $INDEXDIR/$INDEXFN.idx: `date -r $INDEXDIR/$INDEXFN.idx`" | tee -a $LOG
+	    echo "`date` WAR /mnt/$TARGETHD/l0/ddumbfs/$INDEXFN.idx: `date -r /mnt/$TARGETHD/l0/ddumbfs/$INDEXFN.idx`"  | tee -a $LOG
+	    echo "`date` WAR Pls copy this file back to your index directory after clearifying this issue!" | tee -a $LOG
+	    echo "`date` WAR eg cp /mnt/$TARGETHD/l0/ddumbfs/$INDEXFN.idx $INDEXDIR/$INDEXFN.idx" | tee -a $LOG
+	    echo "`date` WAR Will EXIT NOW!!!!"| tee -a $LOG
+	    #mail schicken
+	    SUBJECT="`hostname` can't start backup system"
+	    TXTFILE=$ERRTMP
+	    echo -e "`date` `hostname` Backup system not started. Log follows.">>$ERRTMP
+	    tail -n 25 $LOG >>$ERRTMP
+	    send_mail
+	    TXTFILE=""
+	    echo "`date` ERR mounting ddumbfs failed. Exitcode 2" | tee -a $LOG
+	    exit 2
+	else	    
+	    echo "`date` INF Checking Date OK." | tee -a $LOG
+	    echo "`date` INF $INDEXDIR/$INDEXFN.idx: `date -r $INDEXDIR/$INDEXFN.idx`" | tee -a $LOG
+	    echo "`date` INF /mnt/$TARGETHD/l0/ddumbfs/$INDEXFN.idx: `date -r /mnt/$TARGETHD/l0/ddumbfs/$INDEXFN.idx`"  | tee -a $LOG
+	fi
+    fi
+fi
+}
+
+function check4check()
+{
+if [ $FORCECHECK -eq 1 ] ; then
+    echo "`date` INF WILL NOW FORCE CHECK OF DDUMBFS!"| tee -a $LOG
+    touch "/mnt/$TARGETHD/l0/ddumbfs/.autofsck"
+    if [ ! $? -eq 0 ] ; then
+	echo "`date` WAR CAN'T TOUCH /mnt/$TARGETHD/l0/ddumbfs/.autofsck"| tee -a $LOG
+    fi
+else
+    # hotfix
+    if [ -f "/mnt/$TARGETHD/l0/ddumbfs/.autofsck" ];then
+        echo "`date` WAR Found filesystem which requires check - forced to ignore the check "| tee -a $LOG
+	rm -f "/mnt/$TARGETHD/l0/ddumbfs/.autofsck"
+    fi
+fi
+}
+
+function open_crypt()
+{
+if [ -f /etc/crypttab ]; then  # only try cryptopen if crypt is used
+    UUID=`cat /etc/crypttab |grep "$1 " | cut -d= -f2 | cut -d" " -f1`
+    if [ -f /mnt/bufferdisk/.crypt/key_$1 ]; then  # use cryptkey-file if available
+	cryptdisks_start $1
+    elif [ -b /dev/disk/by-uuid/$UUID ]; then # use derived key
+	echo -n `/lib/cryptsetup/scripts/decrypt_derived bufferdisk``hostname` | cryptsetup luksOpen /dev/disk/by-uuid/$UUID $1
+    fi
+fi
+}
+
+#echo "" | tee -a $LOG
+echo "`date` INF start mount ddumbfs." | tee -a $LOG
+
+#luks:
+#check if bufferdisk is mounted when paranoidmode >=0
+#important as the luks-keys for the ddumb is on the bufferdisk
+if [ $PARANOIAMODE -ge 0 ]; then
+    #init the wait ctr
+    let wctr=0
+    while [ -f $VMBACKUPTARGET/NOT_MOUNTED ]
+    do
+        if [ $wctr -gt 5 ] ; then
+            let wctr=0
+        fi
+
+        if [ $wctr -eq 0 ] ; then
+            echo "`date` INF $0 bufferdisk not mounted. Please mount or decode." >> $LOG
+            let wctr=0
+        fi
+        let wctr=$wctr+1
+        sleep 60
+    done
+fi
+
+echo $0 | grep "only"
+if [ $? -eq 0 ] ; then
+    echo  "`date` INF will only do the mount!." | tee -a $LOG
+    let ONLYMOUNT=1
+fi
+
+echo $0 | grep "check"
+if [ $? -eq 0 ] ; then
+    echo  "`date` INF will check the DDUMBFS!." | tee -a $LOG
+    let FORCECHECK=1
+fi
+
+
+# after serious crash system may hang during repair of ddumbfs
+if [ -f /opt/AmutaQ!/backup/signal/noautostart ] ;then
+    echo "`date` WAR SERVICE DISABLED!" | tee -a $LOG
+    echo "`date` WAR Remove /opt/AmutaQ!/backup/signal/noautostart to enable autostart" | tee -a $LOG
+    if [ ! $FORCECHECK -eq 0 ] ; then
+	echo "`date` WAR EXIT NOW." | tee -a $LOG
+	exit 1
+    else
+	echo "`date` WAR WILL RUN REPAIR AND EXIT" | tee -a $LOG
+	let ONLYMOUNT=1
+    fi
+fi
+
+#we continue when already mounted and use the mounted disk
+mount | grep $DDUMBVOL 2> /dev/null > /dev/null
+MTRST=$? #if 1 then not mounted
+if [ $MTRST -eq 0 ] ; then
+    echo "`date` INF DDUMBFS $DDUMBVOL already mounted - continue using disk `check4physddumbfs`." | tee -a $LOG
+    # mount | grep $DDUMBVOL | tee -a $LOG
+    let MAILFLAG=0
+else
+
+    if [ ! -z "$1" ];then
+        TARGETHD=$1
+        echo  "`date` INF Targetdevice got from commandline: $1" | tee -a $LOG
+        let MAILFLAG=0
+        mount | grep "/mnt/$TARGETHD" 2> /dev/null > /dev/null
+        if [ $? -eq 0 ] ; then
+	    echo "`date` INF $TARGETHD already mounted" | tee -a $LOG
+        else
+#luks: open Crypt before mount
+            open_crypt $TARGETHD
+	    mount /mnt/$TARGETHD 2> /dev/null > /dev/null
+	    if [ $? -eq 0 ] ; then
+	        echo "`date` INF $TARGETHD mounted successfully!" | tee -a $LOG
+	    else
+	        echo "`date` ERR Can't mount $TARGETHD - exit !" | tee -a $LOG
+	        echo "`date` ERR mounting ddumbfs failed. Exitcode 1" | tee -a $LOG
+	        exit 1
+	    fi
+        fi
+
+    else
+        #this happens on startup of the system
+        #looking whether we have valid ddumbfs on target hd
+        let MAILFLAG=1
+        TARGETHD=""
+        for i in  $DDDEVICELIST
+        do
+	    echo "`date` INF Probing DDUMBFS on TARGETHD: $i" | tee -a $LOG
+#luks: open Crypt before mount
+            open_crypt $i
+	    mount /mnt/$i 2> /dev/null > /dev/null
+	    if [ -f /mnt/$i/l0/ddumbfs/ddfs.cfg ] ; then
+	        #wir haben ein gültiges Target gefunden !
+	        TARGETHD=$i
+	        echo "`date` INF Found DDUMBFS on TARGETHD: $TARGETHD" | tee -a $LOG
+	        echo $TARGETHD > $LASTDEVICE
+	        break
+	    fi
+        done 
+    fi
+
+    echo  "`date` INF DDumbFS: $DDUMBVOL" | tee -a $LOG
+    echo  "`date` INF Target: $TARGETHD" | tee -a $LOG
+
+    # hotfix 5/17
+    findfstype
+
+
+    mkdir $DDUMBVOL 2> /dev/null > /dev/null
+    chmod 777 $DDUMBVOL 2> /dev/null > /dev/null
+
+    #check whether file on usb-disk and local indexcache are the same
+    check_indexfile_date
+
+    check4check
+
+
+    #Wurde nach wenigen tagen instabil auf dem netzwerk
+    #/usr/local/bin/ddumbfs -o parent=/mnt/sde1/l0/ddumbfs/,nodio,pool=0,nofuse_default -ouse_ino,readdir_ino,default_permissions,allow_other,max_read=131072,max_write=131072,negative_timeout=0,entry_timeout=0,attr_timeout=0,nonempty /mnt/ddumbfs 2>> $LOG >> $LOG
+
+    /usr/local/bin/ddumbfs -o parent=/mnt/$TARGETHD/l0/ddumbfs/,pool=4,nofuse_default -ouse_ino,readdir_ino,default_permissions,allow_other,max_read=131072,max_write=131072,negative_timeout=0,entry_timeout=0,attr_timeout=0,nonempty $DDUMBVOL 2>&1 | tee -a $LOG
+
+    #look if ddumbfs has been mounted
+    mount | grep $DDUMBVOL 2> /dev/null > /dev/null
+    MTRST=$? #if 1 then not mounted
+    if [ ! $MTRST -eq 0 ] ; then
+	echo "`date` ERR DDUMBFS $DDUMBVOL not mounted !" | tee -a $LOG
+	MTRST=1
+    else
+	echo "`date` INF DDUMBFS $DDUMBVOL successfully mounted !" | tee -a $LOG
+	MTRST=0
+    fi
+
+#    echo "" | tee -a $LOG
+    echo "`date` INF mount executed." | tee -a $LOG
+#    echo "" | tee -a $LOG
+fi
+
+#ah 10/19 check if smbd running before restarting to avoid errors
+service smbd status|grep running 2> /dev/null > /dev/null
+if [ $? -eq 0 ]; then
+    service smbd stop
+    service smbd start
+fi
+#/etc/init.d/nfs-kernel-server stop
+#/etc/init.d/nfs-kernel-server start
+/usr/sbin/exportfs -r
+
+# echo "MAILFLAG:$MAILFLAG"
+
+if [ $MTRST -eq 0 ] ; then
+    #set nfs and directory rights
+    mkdir $ASYNCTARGET 2>/dev/null
+    chmod 777 $ASYNCTARGET 2>/dev/null
+    if [ ! $? -eq 0 ] ; then 
+	if [ "$FILESYS" == "nfs" ];then
+	    echo "`date` INF because fs is type nfs we can't change mode of $ASYNCTARGET"
+	else
+	    echo "`date` WAR filesystem on $ASYNCTARGET not useable!"
+	    let MTRST=1
+	fi
+    fi
+
+    chown nobody:nogroup $ASYNCTARGET 2>/dev/null
+    if [ ! $? -eq 0 ] ; then 
+	if [ "$FILESYS" == "nfs" ];then
+	    echo "`date` INF because fs is type nfs we can't change mode of $ASYNCTARGET"
+	else
+	    echo "`date` WAR filesystem on $ASYNCTARGET not useable!"
+	    let MTRST=1
+	fi
+    fi
+
+
+    mkdir $DDUMBVOL 2>/dev/null
+    chmod 777 $DDUMBVOL 2>/dev/null
+    if [ ! $? -eq 0 ] ; then 
+	if [ "$FILESYS" == "nfs" ];then
+	    echo "`date` INF because fs is type nfs we can't change mode of $DDUMBVOL"
+	else
+	    echo "`date` WAR filesystem on $DDUMBVOL not useable!"
+	    let MTRST=1
+	fi
+    fi
+
+    chown nobody:nogroup $DDUMBVOL 2>/dev/null
+    if [ ! $? -eq 0 ] ; then 
+	if [ "$FILESYS" == "nfs" ];then
+	    echo "`date` INF because fs is type nfs we can't change mode of $DDUMBVOL"
+	else
+	    echo "`date` WAR filesystem on $DDUMBVOL not useable!"
+	    let MTRST=1
+	fi
+    fi
+
+    #VMBACKUPTARGET
+    mkdir $VMBACKUPTARGET 2>/dev/null
+    chmod 777 $VMBACKUPTARGET 2>/dev/null
+    if [ ! $? -eq 0 ] ; then 
+	echo "`date` WAR filesystem on $VMBACKUPTARGET not useable!"
+	let MTRST=1
+    fi
+    chown nobody:nogroup $VMBACKUPTARGET 2>/dev/null
+    if [ ! $? -eq 0 ] ; then 
+	echo "`date` WAR filesystem on $VMBACKUPTARGET not useable!"
+	let MTRST=1
+    fi
+
+    VMMOUNTDIR="/mnt/vmware"
+    mkdir $VMMOUNTDIR 2>/dev/null
+    chmod 777 $VMMOUNTDIR 2>/dev/null
+    if [ ! $? -eq 0 ] ; then 
+	echo "`date` WAR filesystem on $VMMOUNTDIR not useable!"
+	let MTRST=1
+    fi
+    chown nobody:nogroup $VMMOUNTDIR
+    if [ ! $? -eq 0 ] ; then 
+	echo "`date` WAR filesystem on $VMMOUNTDIR not useable!"
+	let MTRST=1
+    fi
+fi
+
+#echo "MAILFLAG:$MAILFLAG"
+
+if [ $MTRST -eq 0 ] ; then
+    if [ $STARTRECLAIM -eq 0 ] ;then
+	echo "`date` INF reclaim thread $RECLAIM disabled!" | tee -a $LOG
+    else
+	echo "`date` INF starting reclaim $RECLAIM ...." | tee -a $LOG
+	$RECLAIM $TARGETHD 2>>/dev/null >>/dev/null &
+    fi
+
+    if [ ! $ONLYMOUNT -eq 1 ] ;then
+	check4amu
+	if [ ! $? -eq 1 ] ; then
+	    echo "`date` INF starting backup system $BACKUP2DDUMB ...." | tee -a $LOG
+	    $BACKUP2DDUMB 2>>$RSYNC_LOG >>$RSYNC_LOG &
+	    sleep 10
+	    check4amu
+	    if [ ! $? -eq 1 ] ; then
+		# fuck - can't start?
+		echo "`date` WAR Backup system not running!" | tee -a $LOG
+		if [ -f $RSYNC_LOG ] ; then
+		    echo "`date` WAR Backup system not running!" >>$ERRTMP
+		    tail -n 10 $RSYNC_LOG >>$ERRTMP
+		    echo "" >>$ERRTMP
+		    echo "" >>$ERRTMP
+		fi
+		let MTRST=1
+		let AMURUNNING=0
+	    else
+		# AmutaQ running
+		let AMURUNNING=1
+	    fi
+	# kd 9/17 always reflect the status of a mount/startup
+	# else
+	    # is running already - no mail!
+	    # let MAILFLAG=0
+	fi
+    fi
+fi
+
+#echo "MAILFLAG:$MAILFLAG"
+
+if [ $MTRST -eq 0 ] ; then
+    if [ $MAILFLAG -eq 1 ] ; then
+	echo "`date` INF sending out e-mail with RST: $MTRST" | tee -a $LOG
+	SUBJECT="`hostname` backup system started."
+	TXTFILE=""
+	TXT="`date` `hostname` backup system successfully started. $SPID"
+	send_mail
+    else
+	echo "`date` INF e-mail output disabled." | tee -a $LOG
+    fi
+    echo "`date` INF mounting ddumbfs done. Exitcode $MTRST" | tee -a $LOG
+else
+    # kd 9/17 always send out mail if exit is not 0
+    # if [ $MAILFLAG -eq 1 ];then
+    echo "`date` ERR sending out e-mail with RST: $MTRST" | tee -a $LOG
+    if [ $AMURUNNING -eq 0 ] ; then
+	SUBJECT="`hostname` BACKUP SYSTEM NOT STARTED!"
+    else
+	SUBJECT="`hostname` foreseen device $TARGETHD not available!"
+    fi
+    TXTFILE=$ERRTMP
+    echo -e "`date` $SUBJECT. Last 25 lines of logfile follow.">>$ERRTMP
+    tail -n 25 $LOG >>$ERRTMP
+    send_mail
+    TXTFILE=""
+    # else
+	# echo "`date` INF e-mail output disabled." | tee -a $LOG
+    # fi
+    echo "`date` ERR mounting ddumbfs failed. Exitcode $MTRST" | tee -a $LOG
+fi
+
+rm -f $ERRTMP
+exit $MTRST

@@ -1,0 +1,115 @@
+#! /bin/bash
+# send mail from bash with pyzmail
+# needs $TXT / $SUBJECT / $LOG as variables in calling script
+# by k.deiss@it-userdesk.de
+
+# V 0.0.1.15.7.14 initial release 
+# V 0.0.2.29.9.14 logging (needs $LOG VAR)
+# V 0.0.3.7.10.14 bugfix
+# V 0.0.3.23.10.14 bugfix
+# V 0.0.4.7.1.16retrz in case of error
+# V 0.0.5.28.4.20 disable/enable control network
+
+
+let MAX_MAIL_TRIES=3
+
+
+# Samples
+# SUBJECT="`hostname` sample subject text"
+# TXTFILE=""
+# TXT="sample text"
+# send_mail
+
+# OR
+
+# TXTFILE=$ERRTMP
+# SUBJECT="`hostname` sample subject text"
+# echo -e "bla bla ">$ERRTMP
+# tail -n 18 $SOMEFILE >>$ERRTMP
+# send_mail
+# TXTFILE=""
+
+
+CIFTOOL="/opt/AmutaQ!/tools/"
+# CIFACTIVE=1 
+# CIFINTERNALNET=eth1
+
+
+#don't edit from here
+
+
+function send_mail()
+{
+    source "/opt/AmutaQ!/etc/pzymail.conf"
+
+    if [ -z $LOG ] ; then
+	LOG="/tmp/sendmaillib.tmp"
+	echo "`date` INF using temporary LOGFILE $LOG"
+    fi
+
+    #if we already have ready made textfile we take that
+    if [ -z $TXTFILE ];then
+	TXTFILE="/tmp/$$.tmp"
+	echo -e $TXT > $TXTFILE
+    else
+	    echo "`date` INF sendmail using formated textfile: $TXTFILE" >> $LOG
+    fi
+
+    if [ -z $PZYMODE ] ; then
+	PZYMODE="normal"
+    fi
+
+    echo "`date` INF invoking pyzsendmail -m $PZYMODE -H $PZYHOST -p $PZYPORT -L $PZYUSER -P HIDDEN -f $PZYFROM -t $PZYTO -s $SUBJECT - $nw -T :@$TXTFILE" >> $LOG
+
+    let rtryctr=0
+    let MAILRST=1
+
+    #enable control net
+    $CIFTOOL/cifon >> $LOG
+
+    while [ $MAILRST -gt 0 ] ; do
+	if [ -z $PZYPASS ] ; then
+	    #no auth required
+	    /usr/local/bin/pyzsendmail -m $PZYMODE -H $PZYHOST -p $PZYPORT                         -f "$PZYFROM" -t "$PZYTO" -s "$SUBJECT" -T :@"$TXTFILE" 2>> $LOG >> $LOG
+	else
+	    #auth required !
+	    /usr/local/bin/pyzsendmail -m $PZYMODE -H $PZYHOST -p $PZYPORT -L $PZYUSER -P $PZYPASS -f "$PZYFROM" -t "$PZYTO" -s "$SUBJECT" -T :@"$TXTFILE" 2>> $LOG >> $LOG
+	fi
+	MAILRST=$?
+	if [ $MAILRST -eq 0 ] ; then
+	    break
+	else
+	    # error during processing
+	    if [ $MAX_MAIL_TRIES -gt $rtryctr ] ; then
+		echo "`date` WAR pyzmail not sent - will retry. ($rtryctr of $MAX_MAIL_TRIES)" >> $LOG
+		# wait 5 minutes
+		sleep 300
+	    else
+		# we give up
+		break
+	    fi
+	fi
+	let rtryctr=$rtryctr+1
+    done
+
+    #disable control net
+    $CIFTOOL/cifoff >> $LOG
+
+    if [ $MAILRST -eq 0 ] ; then
+	echo "`date` INF pyzmail sent ok.($MAILRST)" >> $LOG
+    else
+	echo "`date` ERR error sending  pyzmail.($MAILRST)" >> $LOG
+    fi
+    rm -f $TXTFILE
+    return $MAILRST
+}
+
+
+#start
+source "/opt/AmutaQ!/etc/pzymail.conf"
+if [ -z $LOG ] ; then
+    echo "`date` WAR no valid LOG var."
+    echo "`date` INF LIBFILE mail.lib included"
+#else
+#    echo "`date` INF LIBFILE mail.lib included" >> $LOG
+fi

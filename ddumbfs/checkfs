@@ -1,0 +1,51 @@
+#! /bin/bash
+
+#######################don't edit from here ########################
+
+source /opt/AmutaQ!/etc/AmutaQ!.conf
+
+LOG="/var/log/check_fs.log"
+source /opt/AmutaQ!/lib/mail.lib
+
+ERRTMP="/tmp/mount_fs_$$.tmp"
+LASTDEVICE="/tmp/current_backup_vol"
+
+RECLAIM="/opt/AmutaQ!/ddumbfs/reclaim"
+BACKUP2DDUMB="/opt/AmutaQ!/backup/backup2ddumb"
+INDEXDIR="/opt/AmutaQ!/indexfiles"
+let ONLYMOUNT=0
+let FORCECHECK=0
+
+DDUMBVOL="/mnt/ddumbfs1"
+
+
+if [ ! -z "$1" ];then
+    TARGETHD=$1
+    echo  "Targetdevice got from commandline: $1" | tee -a $LOG
+    mount | grep "/mnt/$TARGETHD" 2> /dev/null > /dev/null
+    if [ $? -eq 0 ] ; then
+	echo "$TARGETHD already mounted" | tee -a $LOG
+    else
+	mount /mnt/$TARGETHD 2> /dev/null > /dev/null
+	if [ $? -eq 0 ] ; then
+	    echo "$TARGETHD mounted successfully!" | tee -a $LOG
+	else
+	    echo "Can't mount $TARGETHD - exit !" | tee -a $LOG
+	    exit 1
+	fi
+    fi
+
+else
+    echo  "No targetgetdevice got from commandline: $1 - exit" | tee -a $LOG
+    exit 1
+fi
+
+#check with pack
+#/usr/local/bin/fsckddumbfs -n -v -p -k /mnt/$TARGETHD/l0.save/ddumbfs | tee -a $LOG
+
+# quick check
+/usr/local/bin/fsckddumbfs -c -l -v -p /mnt/$TARGETHD/l0/ddumbfs | tee -a $LOG
+
+
+echo "`date` INF stop check ddumbfs. Exitcode $MTRST" | tee -a $LOG
+exit

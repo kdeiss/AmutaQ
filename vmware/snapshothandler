@@ -1,0 +1,211 @@
+#! /bin/bash
+# ESXi 5.x host automated snapshot handler script 
+# by k.deiss@it-userdesk.de (base script https://github.com/sixdimensionalarray/esxidown)
+# V 0.0.1.1.4.15 initial release
+
+let INCLUDEMEMORY=0
+let QUIECE=0
+
+source /opt/AmutaQ!/etc/AmutaQ!.conf
+LOG="/var/log/snapshot_handler.log"
+
+# The commandline to the ESXI host
+CMDL="sshpass -p "$VMPASSWORD" ssh -o StrictHostKeyChecking=no $VMUSER@$VMHOST"
+
+# The temp mailfile
+MAILFILE="/tmp/esxi_snapshot.tmp"
+
+
+# ------ DON'T CHANGE BELOW THIS LINE ------
+
+function logger()
+{
+while read line
+do
+    echo "`date` ID:$$ $line" | tee -a $LOG
+done
+}
+
+
+##########################################################
+#               main script
+##########################################################
+
+
+let VMGUSETFOUND=0
+let SNAPSHOTFOUND=0
+
+echo "`date` INF startup $0 $1 $2"
+
+
+ACTION=$1
+VMGUEST=$2
+
+if [ -z $ACTION ] ; then
+    #no args just show
+    ACTION="SHOW"
+    echo "`date` INF No action specified - will execute SHOW snapshot!"
+    echo "`date` INF Usage $0 CREATE|DELETE|SHOW VMGUEST"
+else
+    if [ -z $VMGUEST ] ; then
+	#if action is specified we need machine!
+	echo "usage $0 CREATE|DELETE|SHOW VMGUEST"
+	exit 1
+    else
+	echo "`date` INF Will execute $ACTION $VMGUEST"
+    fi
+fi
+
+
+function remove_snapshot()
+{
+SERVERIDS=$($CMDL vim-cmd vmsvc/getallvms | sed -e '1d' -e 's/ \[.*$//'|awk '{ printf "%s-%s\n",$1,$2 }'  )
+if [ ! -z "$SERVERIDS" ] ; then
+    for i in $SERVERIDS
+    do
+	echo $i | grep "$VMGUEST" > /dev/null
+	if [ $? -eq 0 ];then
+	    let VMGUSETFOUND=1
+	    echo "`date` INF Found machine with VID: $i"
+	    SRVID=`echo $i | cut -f 1 -d "-"`
+	    ESXICMDRST=`$CMDL vim-cmd vmsvc/snapshot.get $SRVID`
+	    STATUS=$?
+    	    echo $ESXICMDRST | grep "ROOT" > /dev/null
+	    if [ $? -eq 0 ];then
+		echo "`date` INF snapshotstate($STATUS): $ESXICMDRST"
+		let SNAPSHOTFOUND=1
+	    fi
+	fi
+    done
+else
+    echo "`date` ERR Can't get serverids / access ESXi Host"
+    return 2
+fi
+
+if [ $VMGUSETFOUND -eq 0 ]; then
+    echo "`date` ERR very strange: $VMGUEST not found!"
+    return 3
+fi
+
+if [ $SNAPSHOTFOUND -eq 0 ]; then
+    echo "`date` WAR $VMGUEST has no snapshot!"
+    return 0
+fi
+
+#now we try to remove the snapshot
+echo "`date` INF removing snapshot - be patient ...."
+ESXICMDRST=`$CMDL vim-cmd vmsvc/snapshot.removeall $SRVID`
+STATUS=$?
+echo $ESXICMDRST $STATUS
+if [ ! $STATUS -eq 0 ] ; then
+    echo "`date` ERR can't remove snapshot!"
+    return 4
+else
+    echo "`date` INF Snapshot removed!"
+    return 0
+fi
+}
+
+function createSnapshot()
+{
+SERVERIDS=$($CMDL vim-cmd vmsvc/getallvms | sed -e '1d' -e 's/ \[.*$//'|awk '{ printf "%s-%s\n",$1,$2 }'  )
+if [ ! -z "$SERVERIDS" ] ; then
+    for i in $SERVERIDS
+    do
+	echo $i | grep "$VMGUEST" > /dev/null
+	if [ $? -eq 0 ];then
+	    let VMGUSETFOUND=1
+	    echo "`date` INF Found machine with VID: $i"
+	    SRVID=`echo $i | cut -f 1 -d "-"`
+	    ESXICMDRST=`$CMDL vim-cmd vmsvc/snapshot.get $SRVID`
+	    STATUS=$?
+    	    echo $ESXICMDRST | grep "ROOT" > /dev/null
+	    if [ $? -eq 0 ];then
+		echo "`date` WAR This machine has alread an snapshot: $ESXICMDRST"
+		let SNAPSHOTFOUND=1
+	    fi
+	fi
+    done
+else
+    echo "`date` ERR Can't get serverids / access ESXi Host"
+    return 2
+fi
+
+if [ $VMGUSETFOUND -eq 1 ] ; then
+    SNAPNAME="AUTO-SNAP-`date +"%Y%m%d%H%M%S"`"
+    SNAPCOMMENT="SNAPSHOT_CREATED_BY_$0_`date +"%H:%M:%S_%d.%m.%Y"`"
+
+    if [ $INCLUDEMEMORY -eq 1 ] ; then
+	echo "`date` INF Including memory into snapshot!"
+    fi
+
+    if [ $QUIECE -eq 1 ] ; then
+	echo "`date` INF Will quiece the virtual machine!"
+    fi
+
+
+    SNAPCMD="vmsvc/snapshot.create $SRVID $SNAPNAME $SNAPCOMMENT $INCLUDEMEMORY $QUIECE"
+    echo "`date` INF Creating snapshot with $SNAPCMD - be patient!"
+    ESXICMDRST=`$CMDL vim-cmd $SNAPCMD`
+    STATUS=$?
+    if [ $STATUS -eq 0 ];then
+	echo "`date` INF Snapshot created succesfully!"
+	show_snapshot
+    else
+	echo "`date` ERR Snapshot failed: $ESXICMDRST"
+    fi
+    return $STATUS
+else
+    echo "`date` ERR Can't find VMGUEST ${VMGUEST}???"
+    return 5
+fi
+}
+
+function show_snapshot()
+{
+SERVERIDS=$($CMDL vim-cmd vmsvc/getallvms | sed -e '1d' -e 's/ \[.*$//'|awk '{ printf "%s-%s\n",$1,$2 }'  )
+if [ ! -z "$SERVERIDS" ] ; then
+    for i in $SERVERIDS
+    do
+	echo $i | grep "$VMGUEST" > /dev/null
+	if [ $? -eq 0 ];then
+	    echo "`date` INF Found machine with VID: $i"
+	    SRVID=`echo $i | cut -f 1 -d "-"`
+	    ESXICMDRST=`$CMDL vim-cmd vmsvc/snapshot.get $SRVID`
+	    STATUS=$?
+    	    echo $ESXICMDRST | grep "ROOT" > /dev/null
+	    if [ $? -eq 0 ];then
+		echo "`date` INF snapshotstate($STATUS): $ESXICMDRST"
+		let SNAPSHOTFOUND=1
+	    fi
+	fi
+    done
+else
+    echo "`date` ERR Can't get serverids / access ESXi Host"
+    return 2
+fi
+}
+
+
+
+
+case $ACTION in
+    DELETE)
+	remove_snapshot
+	let RST=$?
+	;;
+    CREATE)
+	createSnapshot
+	let RST=$?
+	;;
+    SHOW)
+	show_snapshot
+	let RST=$?
+	;;
+    *)
+    echo "`date` ERR Invalid action selected!"
+    let RST=4
+esac
+
+#echo "EXIT WITH $RST"
+exit $RST

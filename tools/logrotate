@@ -1,0 +1,55 @@
+#! /bin/bash
+# V 0.0.1.2.10.14 rotate our logs
+# V 0.0.1.4.10.14 gzip rotated logs
+# V 0.0.2.26.7.17 extending list
+# V 0.0.3.4.10.19 smart log (split instead of delete)
+
+source /opt/AmutaQ!/etc/AmutaQ!.conf
+
+let MAXFS=3000000
+
+#echo MAXFS $MAXFS
+
+LOGLIST="$RSYNC_LOG $ASYNC_LOG /var/log/mount_fs.log /var/log/reclaim.log /var/log/control_bazaar.log /var/log/cpu-stat-log /var/log/guest_control.log /var/log/syncftp.log /var/log/xrdp.log /var/log/dauerbackup.log"
+LOGLIST="/tmp/monitorix.1"
+
+tmp0="/tmp/lr0"
+tmp1="/tmp/lr1"
+
+
+for FN in $LOGLIST
+do
+    #get filesize 
+    if [ -f $FN ];then
+	MFS=$(ls -l $FN | tr -s " " | cut -d " " -f 5)
+	#echo "MFS: $MFS"
+	if [ $MFS -gt $MAXFS ];then
+	    DT=`date +"%d_%b_%y_%H%M"`
+	    NEWFN="${FN}_${DT}.gz"
+
+	    # let a part of the file inside the log
+	    lanz=`wc $FN | cut -f 3 -d " "`
+	    TOZIP=$(($lanz/10*9))
+	    STAY=$(($lanz/10))
+
+	    tail --lines=$STAY $FN > $tmp0
+	    head --lines=$TOZIP $FN > $tmp1
+
+	    gzip -c $tmp1 > $NEWFN
+	    if [ $? -eq 0 ];then
+		cat $tmp0 > "$FN"
+		#rm -f "$FN"
+		#touch "$FN"
+		echo "`date` INF  logrotate file $FN" >> $FN
+	    fi
+	    #else
+		#echo "will not rotate $FN"
+	fi
+    #else
+    	#echo "$FN not found!"
+    fi
+done
+rm -f $tmp0
+rm -f $tmp1
+exit 0
+

@@ -1,0 +1,112 @@
+#! /bin/bash
+# by k.deiss@it-userdesk.de
+# crc check after copy from bufferdisk
+# V 0.0.1 7.11.16 dummy script if crc check is supressed
+# V 0.0.2.12.5.17 nfs hotfix
+
+#don't edit from here
+
+source /opt/AmutaQ!/etc/AmutaQ!.conf
+
+LOG=$ASYNC_LOG
+TMP="/tmp/$$.tmp"
+TMP2="/tmp/$$2.tmp"
+MAILTMP="/tmp/acrcmail_$$.tmp"
+SYSREPORT="/opt/AmutaQ!/webmin/log1.sh"
+
+function ex_and_clean()
+{
+if [ -f $TMP ];then
+    rm -f $TMP
+fi
+
+if [ -f "$TARGETDIR/.crc32" ];then
+    rm -f "$TARGETDIR/.crc32"
+fi
+
+if [ -f "$SOURCEDIR/.crc32" ];then
+    rm -f "$SOURCEDIR/.crc32"
+fi
+
+echo "" >> $LOG
+}
+
+function check_signal()
+{
+	if [ -f $SIGNAL/switch ] ; then
+	    echo "`date` INF $0 (ID: $ctr) stoped: switch is pending." >> $LOG;
+	    ex_and_clean
+	    exit 0
+	fi
+
+	if [ -f $SIGNAL/stop ] ; then
+	    echo "`date` INF $0 (ID: $ctr) stoped: stop is pending." >> $LOG;
+	    ex_and_clean
+	    exit 0
+	fi
+}
+
+
+#check parms
+
+if [ -z $1 ]; then
+    echo `date` "usage $0 SOURCE TARGET" >> $LOG
+    exit 1
+fi
+
+if [ -z $2 ]; then
+    echo `date` "usage $0 SOURCE TARGET" >> $LOG
+    exit 1
+fi
+
+if [ ! -d $1 ]; then
+    echo `date` "invalid source - usage $0 SOURCE TARGET" >> $LOG
+    exit 1
+else
+    SOURCEDIR=$1    
+fi
+
+if [ ! -d $2 ]; then
+    echo `date` "invalid target - usage $0 SOURCE TARGET" >> $LOG
+    exit 1
+else
+    TARGETDIR=$2
+fi
+
+#maillib includen
+source /opt/AmutaQ!/lib/mail.lib
+
+#ctr=`date +%s`
+ctr=$$
+SAVEIFS=$IFS
+IFS=$(echo -en "\n\b")
+
+# check whether crc check is running / or already done in source dir
+if [ -f "$SOURCEDIR/.crc32" ] || [ -f "$SOURCEDIR/checksum.crc" ] ; then
+    if [ -f "$SOURCEDIR/.crc32" ]; then
+	echo "`date` INF crc check in sourcedir already running." >> $LOG
+    fi
+    if [ -f "$SOURCEDIR/checksum.crc" ]; then
+	echo "`date` INF crc check in sourcedir already done." >> $LOG
+    fi
+else
+    echo "`date` INF starting crc check dummy(!) $SOURCEDIR. (ID:$ctr)" >> $LOG
+    RST=""
+    echo $$ > "$SOURCEDIR/.crc32"
+    echo "" >> $LOG
+    rm -f "$SOURCEDIR/.crc32"
+fi
+
+echo "`date` INF starting crc check dummy(!) $TARGETDIR. (ID:$ctr)" >> $LOG
+RST=""
+# nfs hotfix
+touch "$TARGETDIR/.crc32"
+chmod 666 "$TARGETDIR/.crc32"
+echo $$ > "$TARGETDIR/.crc32"
+if [ -f "$TARGETDIR/checksum.crc" ] ; then
+    rm -f $TARGETDIR/checksum.crc
+fi
+
+IFS=$SAVEFS
+echo "`date` INF crc check dummy(!) done!. (ID:$ctr)" >> $LOG
+ex_and_clean

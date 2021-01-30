@@ -1,0 +1,99 @@
+#! /bin/bash
+# V 0.0.1.29.9.14 
+# mount disk from commandline
+# by k.deiss@it-userdesk.de
+
+PT=`pwd`
+
+TD="/mnt/vmware"
+TMP1="/tmp/vmware.lst"
+
+MACHINENAME=`ls $PT/*.vmx`
+MACHINENAME=`basename $MACHINENAME | sed "s/.vmx//g"`
+
+echo "PT: $PT"
+echo "MachineName: $MACHINENAME"
+
+
+VMLIB=/usr/lib/vmware-vix-disklib/lib64
+#sudo LD_LIBRARY_PATH=$VMLIB vmware-mount -x 2> /dev/null > /dev/null 
+
+
+
+which vmware-mount
+if [ ! $? -eq 0 ]; then
+    echo "To use this utility you need to install VMWare DDK !!"
+    echo "See http://www.it-userdesk.de/download_ddk.html" 
+exit 1
+fi
+
+
+#umount all
+sudo LD_LIBRARY_PATH=$VMLIB vmware-mount -x 2> /dev/null > /dev/null 
+sleep 1
+sudo LD_LIBRARY_PATH=$VMLIB vmware-mount -x
+
+if [ ! $? -eq 0 ] ; then
+    echo "Error in umount!  -  exit 1"
+    exit 1
+else
+    echo ""
+    echo "umount ok!"
+fi
+
+SAVEIFS=$IFS
+IFS=$(echo -en "\n\b")
+
+#for fn in `ls -1 *.vmdk`
+#do
+#    echo "found $fn"
+#done
+
+for fn in $( ls -1 *.vmdk  )
+do
+    echo $fn | grep "flat." > /dev/null
+    if [ ! $? -eq 0 ] ; then
+	echo ""
+	echo "mounting file: $fn"
+	#get the list nownow 
+	#vmware-mount -p "$PT/$fn"
+	echo "" > $TMP1
+	sudo LD_LIBRARY_PATH=$VMLIB vmware-mount -p "$PT/$fn" > $TMP1
+	chmod 666 $TMP1
+	cat $TMP1
+
+	echo ""
+	mkdir "$TD/$MACHINENAME" 2> /dev/null > /dev/null
+	chmod 777 "$TD/$MACHINENAME"
+	mkdir "$TD/$MACHINENAME/$fn" 2> /dev/null > /dev/null
+	chmod 777 "$TD/$MACHINENAME/$fn"
+
+	let ctr=-2
+	echo ""
+	while read line
+	do
+	    let ctr=$ctr+1
+	    if [ $ctr -gt 0 ]; then
+		# echo $ctr " mount " $line 
+		pctr=`echo $line | cut -f 2 -d " "`
+		echo -en "mounting partition nr. $pctr to $TD/$fn/$pctr "
+		mkdir "$TD/$MACHINENAME/$fn/$pctr" 2> /dev/null > /dev/null
+		chmod 777 "$TD/$MACHINENAME/$fn/$pctr"
+		sudo LD_LIBRARY_PATH=$VMLIB vmware-mount "$PT/$fn" $pctr "$TD/$MACHINENAME/$fn/$pctr"
+		if [ $? -eq 0 ] ; then
+		    echo " OK"
+		else
+		    echo " FAIL"
+		fi
+	    fi
+	done < $TMP1
+    fi
+done
+
+IFS=$SAVEIFS
+
+echo "press key to continue...."
+read answer
+exit 0
+
+

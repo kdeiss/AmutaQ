@@ -1,0 +1,88 @@
+#! /bin/bash
+# by k.deiss@it-userdesk.de
+# V 0.0.1 27.12.15
+# V 0.0.2 3.3.17
+# V 0.0.3 12.9.19
+# translate linux device names to human readble names
+
+#don't edit from here
+
+function trans-discnames()
+{
+case $1 in
+
+"sdb1")
+echo -en "Disc-0 (sdb1)"
+;;
+
+"sdc1")
+echo -en "Disc-1 (sdc1)"
+;;
+
+"sdd1")
+echo -en "Disc-2 (sdd1)"
+;;
+
+"sde1")
+echo -en "Disc-3 (sde1)"
+;;
+
+"sdf1")
+echo -en "Disc-4 (sdf1)"
+;;
+
+"sdg1")
+echo -en "Disc-5 (sdg1)"
+;;
+
+"sdh1")
+echo -en "Disc-6 (sdh1)"
+;;
+
+"sdi1")
+echo -en "Disc-7 (sdi1)"
+;;
+
+"sdj1")
+echo -en "Disc-8 (sdj1)"
+;;
+
+"dayofweek-1")
+echo -en "Monday (dayofweek-1)"
+;;
+
+"dayofweek-2")
+echo -en "Tuesday (dayofweek-2)"
+;;
+
+"dayofweek-3")
+echo -en "Wednesday (dayofweek-3)"
+;;
+
+"dayofweek-4")
+echo -en "Thursday (dayofweek-4)"
+;;
+
+"dayofweek-5")
+echo -en "Friday (dayofweek-5)"
+;;
+
+"dayofweek-6")
+echo -en "Saturday (dayofweek-6)"
+;;
+
+"dayofweek-7")
+echo -en "Sunday (dayofweek-7)"
+;;
+
+*)
+echo -en "unknown disc ($1)"
+;;
+
+
+esac
+}
+
+
+# usage   echo "try to umount `trans-discnames $i` ......."
+

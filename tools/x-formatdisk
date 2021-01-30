@@ -1,0 +1,906 @@
+#! /bin/bash
+# V 0.0.1.9.10.14 edit mail config
+# V 0.0.2.2.11.14 bugfix
+# V 0.0.3.9.2.15 proportionale size of disk DDUMBSIZE (percentage of DDUMB to phys. disk size)
+# V 0.0.4.2.4.15 bugfix (get disk size)
+# V 0.0.5.2.7.16 formatting source
+# V 0.0.6.12.9.19 ah luks beta
+# V 0.0.7.18.9.19 ah write changes to multiple configs
+# V 0.0.8.10.10.19 ah do not reserve blocks for root on ext4
+# V 0.0.9.13.10.19 ah new detection of mountpoint. Used for mount-check and show in list
+# V 0.1.0.20.11.19 ah directly create indexfile in /AmutaQ!/indexfiles
+# V 0.1.1.20.11.19 ah fix: reopen crypted disk on correct mpoint-name
+# V 0.1.2.20.11.19 ah fix do not reserve blocks for root on ext4 now with tune2fs
+# V 0.1.3.21.09.20 ah update fdisk-grep for Mint 20
+# V 0.1.4.25.09.20 ah crypt: use derived key from bufferdisk as standard if possible
+# V 0.1.5.27.11.20 ah fix: fdisk uses decimal . or , in different versions
+
+DISKS="b c d e f g h i j k l m n o p q r s t u v w x y z aa ab ac ad ae af ag ah ai aj ak al"
+DISKS="c d e f g h i j k l m n o p q r s t u v w x y z aa ab ac ad ae af ag ah ai aj ak al"
+
+FILESYSTEM="ext4"
+DDUMBSIZE=80
+
+#don't edit from here
+
+TEMPFILE="/tmp/zenity_listfile"
+TEMPFILE1="/tmp/zenity_diskfile"
+TEMPFILE2="/tmp/zenity_temp"
+CONFIGFILE="/opt/AmutaQ!/etc/AmutaQ!.conf"
+
+let DISKSIZE=0
+DISKRST="" 	#the device sdc sdd ....
+MPOINT=""	#the mountpoint sdc1 sdd1 .....
+MAPPER=""       #used if coding is used
+BUFFERDISK=""	#used if coding is used
+#CREATEINDEX="/opt/AmutaQ!/tools/init_external_index"
+
+
+if [ -f $CONFIGFILE ] ; then
+    source $CONFIGFILE
+else 
+    zenity --error --text "Can't read config $CONFIG"
+    exit 1
+fi
+
+source /opt/AmutaQ!/lib/cfgedit.lib
+
+
+let DEBUGFLAG=0
+echo $0 | grep "debug" > /dev/null
+if [ $? -eq 0 ] ; then
+    let DEBUGFLAG=1
+fi
+
+
+#########################################################
+#                       functions                       #
+#########################################################
+
+#prepare the disk for mounting, create ddumbfs, create indexcache
+function prepdisk4mount()
+{
+IFS=$SAVEIFS
+if [ $CODIFY -eq 0 ];then
+  BUFFERDISK=`mount |grep bufferdisk|cut -f 3 -d " "`
+  MAPPER="/mapper"
+fi
+
+msg="SEARCHING UUID"
+echo 5
+echo "# $msg"
+#use mapper for luks
+UUID=`blkid|grep /dev$MAPPER/${DISKRST}1|cut -f 2 -d " "|cut -f 2 -d "=" | sed "s/\"//g"|cut -f 1 -d " "`
+if [ -z "$UUID" ]; then
+    echo 100
+    zenity --error --text "Can't get UUID of $DISKRST - can't continue !"
+    return 1
+fi
+echo 6
+echo "# $msg SUCCESS."
+sleep 1
+
+#used by luks:
+if [ $CODIFY -eq 0 ];then
+  msg="SEARCHING unencoded UUID"
+  echo 7
+  echo "# $msg"
+  UNCODEDUUID=`blkid|grep /dev/${DISKRST}1|cut -f 2 -d " "|cut -f 2 -d "=" | sed "s/\"//g"|cut -f 1 -d " "`
+  if [ -z "$UNCODEDUUID" ]; then
+      echo 100
+      zenity --error --text "Can't get UUID of underlying $DISKRST - can't continue !"
+      return 1
+  fi
+  echo 8
+  echo "# $msg SUCCESS."
+  sleep 1
+fi
+
+
+SAVEIFS=$IFS
+IFS=$(echo -en "\n\b")
+
+echo "UUID of ${DISKRST}1: $UUID"
+
+#now find a mountpoint
+msg="SEARCHING VALID MOUNTPOINT."
+echo 10
+echo "# $msg"
+
+let mpointfound=0
+for line in `cat /etc/fstab`
+do
+    echo $line | grep "/mnt/${DISKRST}1" > /dev/null
+    if [ $? -eq 0 ] ; then
+	#this mountpoint is used already
+	let mpointfound=1
+    fi
+done
+
+if [ $mpointfound -eq 1 ];then
+	#we have to choose alternative mpoint
+	while read i; 
+	do
+	    let mpointfound=0
+	    echo "TESTING MOUNTPOINT /mnt/${i}1"
+	    for line in `cat /etc/fstab`
+	    do
+		echo $line | grep "/mnt/${i}1" > /dev/null
+		if [ $? -eq 0 ] ; then
+		    #mountpoint $i is not free
+		    let mpointfound=1
+		    break
+		fi
+	    done
+	    if [ $mpointfound -eq 0 ];then
+		MPOINT="${i}1"
+		echo "FOUND NEXT VALID MOUNTPOINT: /mnt/${i}1"
+		echo 16
+		echo "# $msg SUCCESS."
+		sleep 1
+		break
+	    fi
+	done <$TEMPFILE1
+else
+    echo "THIS IS THE FIRST DISK IN CHAIN!"
+    MPOINT="${DISKRST}1"
+    echo 16
+    echo "# $msg SUCCESS."
+    sleep 1
+    break
+fi
+
+echo MPOINT="/mnt/$MPOINT"
+MOUNTLINE="UUID=$UUID /mnt/$MPOINT $FILESYSTEM   noauto   0   0" 
+echo "# disk added by $0 `date`" >> /etc/fstab
+
+#echo "ADDING MOUNT LINE TO FSTAB ($MOUNTLINE)"
+msg="ADDING MOUNT LINE TO FSTAB"
+echo 17
+echo "# ${msg}."
+
+echo $MOUNTLINE >> /etc/fstab
+echo "" >> /etc/fstab
+
+if [ ! $? -eq 0 ];then
+    echo 100
+    echo "# $msg FAILED."
+    sleep 1
+    zenity --error --text "CAN'T ADD MOUNTLINE ${MOUNTLINE}."
+    return 2
+else
+    echo 18
+    echo "# $msg SUCCESS."
+    sleep 1
+fi
+
+#used for luks
+if [ $CODIFY -eq 0 ];then
+    bufferdisk_is_luks1
+    if [ $? -eq 1 ]; then # no derived key possible
+	  #move key-file to correct name
+#	  if [ ! -d $BUFFERDISK/.crypt ]; then
+#	    mkdir $BUFFERDISK/.crypt
+#	  fi
+	  mv $BUFFERDISK/.crypt/key $BUFFERDISK/.crypt/key_$MPOINT
+	  chmod 400 $BUFFERDISK/.crypt/key_$MPOINT
+	  echo "# ADDING MOUNT LINE TO CRYPTTAB."
+	  CRYPTLINE="$MPOINT UUID=$UNCODEDUUID   $BUFFERDISK/.crypt/key_$MPOINT   luks,noauto"
+	  echo "# disk added by $0 `date`" >> /etc/crypttab
+	  echo $CRYPTLINE >> /etc/crypttab
+	  echo "" >> /etc/crypttab
+	#reopen crypted disk on correct mpoint-name
+	  cryptsetup luksClose ${DISKRST}1
+	  cryptdisks_start $MPOINT
+    else	#use derived key
+          echo "# ADDING MOUNT LINE TO CRYPTTAB."
+          CRYPTLINE="$MPOINT UUID=$UNCODEDUUID   none   luks,noauto"
+          echo "# disk added by $0 `date`" >> /etc/crypttab
+          echo $CRYPTLINE >> /etc/crypttab
+          echo "" >> /etc/crypttab
+	#reopen crypted disk on correct mpoint-name
+	  cryptsetup luksClose ${DISKRST}1
+	  echo -n `/lib/cryptsetup/scripts/decrypt_derived bufferdisk``hostname` | cryptsetup luksOpen /dev/${DISKRST}1 $MPOINT
+    fi
+  echo 20
+fi
+
+mkdir  /mnt/$MPOINT > /dev/null
+if [ ! -d /mnt/$MPOINT ];then
+    echo "CAN'T CREATE MOUNTPOINT /mnt/$MPOINT"
+    return 3
+else
+    chmod 777 /mnt/$MPOINT
+fi
+
+msg="MOUNTING VOLUME."
+echo 21
+echo "# $msg"
+mountdisk
+if [ ! $? -eq 0 ];then
+    echo "# $msg FAILED."
+    echo 100
+    sleep 1
+    return 4
+else
+    echo 35
+    echo "$msg SUCCESS."
+fi
+
+#ah: directly create indexfile in indexfiles
+msg="INIT DISKINFO."
+echo 36
+echo "# $msg"
+initdiskinfo $UUID
+if [ ! $? -eq 0 ];then
+    echo 100
+    echo "# $msg FAILED."
+    sleep 1
+    return 5
+else
+    echo 49
+    echo "# $msg SUCCESS."
+    sleep 1
+fi
+
+msg="CREATE DDUMBFS."
+echo 50
+echo "# $msg"
+createddumbfs $UUID
+if [ ! $? -eq 0 ];then
+    echo 100
+    echo "# $msg FAILED."
+    sleep 1
+    return 5
+else
+    echo 70
+    echo "# $msg SUCCESS."
+    sleep 1
+fi
+
+#ah: directly create indexfile in indexfiles
+#msg="CREATE INDEXFILE. $CREATEINDEX ${MPOINT}"
+#echo 71
+#echo "# $msg"
+#$CREATEINDEX ${MPOINT}
+#if [ ! $? -eq 0 ];then
+#    echo 100
+#    echo "# $msg FAILED."
+#    sleep 1
+#    return 6
+#else
+#    echo 95
+#    echo "# $msg SUCCESS."
+#    sleep 1
+#fi
+
+msg="ADDING DEVICE $MPOINT TO CENTRAL DEVICELIST."
+echo 96
+echo "# $msg"
+addnewdev2config
+if [ ! $? -eq 0 ];then
+    echo 100
+    echo "# $msg FAILED."
+    sleep 1
+    return 7
+else
+    echo 98
+    echo "# $msg SUCCESS."
+    sleep 1
+fi
+
+
+
+echo 99
+echo "# DISK PREPARATION SUCCESS."
+sleep 1
+echo 100
+
+return 0
+}
+
+function initdiskinfo()
+{
+TARGETHD="/mnt/$MPOINT"
+DISKINFO="$TARGETHD/diskinfo"
+UUID=$1
+if [ ! -f $DISKINFO ];then
+    echo "NO DISKINFO FILE"
+    #we have to find the corresponding device
+    sdev=`mount | grep $TARGETHD`
+    if [ -z "$sdev" ] ; then
+        echo "DISK NOT MOUNTED"
+        exit 2
+    fi
+    sdev=`echo $sdev|cut -f 1 -d " "`
+
+    #UUID=`blkid|grep $TARGETHD|cut -f 2 -d " "|cut -f 2 -d "=" | sed "s/\"//g"`
+#    UUID=`blkid|grep $sdev|cut -f 2 -d " "|cut -f 2 -d "=" | sed "s/\"//g"|cut -f 1 -d " "`
+    echo "THDD:${TARGETHD}"
+    echo "UUID:$UUID"
+
+    if [ ! -z $UUID ]; then
+        echo "UUID: $UUID" > $DISKINFO
+        echo "created generic diskinfo file"
+    else
+        echo "cannot create generic diskinfo file"
+        exit 1
+    fi
+fi
+
+}
+
+function createddumbfs()
+{
+#create DDUMPFS
+mkdir /mnt/$MPOINT/l0 2>/dev/null
+mkdir /mnt/$MPOINT/l0/ddumbfs 2>/dev/null
+chmod 777 /mnt/$MPOINT/l0/ddumbfs
+let dsize=($DISKSIZE/100)*$DDUMBSIZE
+#ah: directly create indexfile in indexfiles
+ADIR="/opt/AmutaQ!"
+IDIR="$ADIR/indexfiles"
+UUID=$1
+mkddumbfs -B 64k -i $IDIR/$UUID.idx -s $dsize /mnt/$MPOINT/l0/ddumbfs
+cp --preserve=timestamps "$IDIR/$UUID.idx" "/mnt/$MPOINT/l0/ddumbfs/"
+}
+
+
+
+#mount the disk MPOINT and verify whether is mounted
+function mountdisk()
+{
+#now mount
+echo "MOUNTING /mnt/$MPOINT"
+mount /mnt/$MPOINT
+if [ ! $? -eq 0 ];then
+    #disk is not mounted - fuck
+    zenity --error --text "DISK IS NOT MOUNTED - CAN'T CONTINUE\n\nPLEASE CHECK YOUR LOG."
+    echo "MOUNT CMD FAILED"
+    return 1
+else
+    echo "MOUNT CMD SUCCESS"
+fi
+
+# check whether it is mounted
+echo "VERIFYING MOUNTPOINT"
+let mpointfound=0
+for line in `mount`
+do
+    echo $line | grep "/mnt/$MPOINT"
+    if [ $? -eq 0 ] ; then
+	#this disk is mounted
+	let mpointfound=1
+	break
+    fi
+done
+
+if [ $mpointfound -eq 0 ];then
+    #disk is not mounted - fuck
+    echo "VERIFY MOUNT FAILED"
+    zenity --error --text "DISK IS NOT MOUNTED - CAN'T CONTINUE\n\nPLEASE CHECK YOUR LOG."
+    return 1
+else
+    echo "VERIFY MOUNT SUCCESS"
+    return 0
+fi
+}
+
+
+
+function partandformat()
+{
+echo 10
+if [ ! $? -eq 0 ] ; then
+    #broken pipe user click cancel
+    echo 100
+    return 1
+fi
+echo "# creating gpt table on $DISKRST."
+sleep 1
+
+date > $TEMPFILE2
+echo "Creating partitions on /dev/${DISKRST} ..."
+parted -a optimal --script /dev/${DISKRST} -- mktable gpt 2>>$TEMPFILE2 >>$TEMPFILE2
+if [ ! $? -eq 0 ];then
+    zenity --error --text "Error during partitioning $DSKRST"
+    return 2
+fi
+
+echo 20
+if [ ! $? -eq 0 ] ; then
+    #broken pipe user click cancel
+    echo 100
+    return 3
+fi
+echo "# creating partition table on $DISKRST."
+sleep 1
+
+
+parted -a optimal --script /dev/${DISKRST} -- mkpart ext2 0% 100% 2>>$TEMPFILE2 >>$TEMPFILE2
+if [ ! $? -eq 0 ];then
+    zenity --error --text "Error during partitioning $DSKRST"
+    return 4
+fi
+
+#used for luks
+if [ $CODIFY -eq 0 ];then
+    MAPPER="/mapper"
+    bufferdisk_is_luks1
+    if [ $? -eq 1 ]; then # no derived key possible
+        #create keyfile
+        echo "# preparing key on $DISKRST."
+        BUFFERDISK=`mount |grep bufferdisk|cut -f 3 -d " "`
+        if [ ! -d $BUFFERDISK/.crypt ]; then
+            mkdir $BUFFERDISK/.crypt
+        fi
+        dd if=/dev/urandom of=$BUFFERDISK/.crypt/key bs=512 count=8
+        echo 30
+        #codify partition
+        echo "# encoding $DISKRST."
+        cryptsetup -v luksFormat --key-file $BUFFERDISK/.crypt/key /dev/${DISKRST}1
+        echo 40
+        #open new partition
+        echo "# Open encoded $DISKRST."
+        cryptsetup luksOpen /dev/${DISKRST}1 ${DISKRST}1 --key-file=$BUFFERDISK/.crypt/key
+    else		# use derived key from bufferdisk plus hostname
+        echo 30
+        #codify partition
+        echo "# encoding $DISKRST."
+        echo `/lib/cryptsetup/scripts/decrypt_derived bufferdisk``hostname` | cryptsetup -v luksFormat /dev/${DISKRST}1
+        echo 40
+        #open new partition
+        echo "# Open encoded $DISKRST."
+	echo `/lib/cryptsetup/scripts/decrypt_derived bufferdisk``hostname` | cryptsetup luksOpen /dev/${DISKRST}1 ${DISKRST}1
+    fi
+fi
+
+echo 50
+if [ ! $? -eq 0 ] ; then
+    #broken pipe user click cancel
+    echo 100
+    return 5
+fi
+echo "# formating $DISKRST with filesystem $FILESYSTEM."
+sleep 1
+
+
+echo "Formatting /dev/${DISKRST}1 ..."
+echo 75
+#use mapper for luks
+mkfs -t $FILESYSTEM /dev$MAPPER/${DISKRST}1 2>>$TEMPFILE2 >>$TEMPFILE2
+if [ ! $? -eq 0 ];then
+    zenity --error --text "Error during formating $DSKRST"
+    echo 100
+    return 6
+else
+    echo 99
+    echo "# format ok!"
+    sleep 1
+fi
+#10/19 ah do not reserve 5% blocks for root with ext4
+if [ $FILESYSTEM == "ext4" ]; then
+    tune2fs -m 0 /dev/$MAPPER/${DISKRST}1 2>>$TEMPFILE2 >>$TEMPFILE2
+fi
+echo 100
+#zenity --width=800 --height=400 --text-info  --font="courier bold" --filename $TEMPFILE2
+
+if [ $DEBUGFLAG -eq 1 ] ; then
+    cat $TEMPFILE2
+fi
+
+return 0
+}
+
+
+
+
+function selectdisk()
+{
+#ah 10/19 add column mountpoint in list
+#collect device data, present it to user for selection
+echo "zenity --list --width=700 --height=400 --radiolist --title=\"Select Harddisk please\" --column="select" --column=\"Device\" --column=\"Blocksize\" --column=\"Mountpoints\" --column=\"SERIAL\" \\" > $TEMPFILE
+#echo "zenity --list --width=600 --height=400 --radiolist --title=\"Select Harddisk please\" --column="select" --column=\"Device\" --column=\"Blocksize\" --column=\"SERIAL\" \\" > $TEMPFILE
+let lctr=0
+for line in `cat /proc/partitions|tr -s " "`
+do
+    #echo $line
+    let lctr=$lctr+1
+    if [ $lctr -gt 1 ] ; then
+	if [ ! -z $t1 ] && [ ! -z $t2 ] ; then
+	    echo "$t1 $t2 $t4 $t3" >> $TEMPFILE
+#	    echo "$t1 $t2 $t3" >> $TEMPFILE
+	fi
+	device=`echo $line |cut -f 5 -d " "`
+	t1=""
+	t2=""
+	t3=""
+	t4=""
+	#echo "searching dev $device"
+	#only disks from DISK list an higher than sdc !
+	while read i; do
+	    #echo "probing dev ${i}"
+	    if [ ${i} == $device ] ; then
+		echo "FOUND DEVICE $device"
+		t1="FALSE `echo $line |cut -f 5 -d " "`"
+		t2="`echo $line |cut -f 4 -d " "`"
+		serial="`udevadm info --name=$device | grep "VENDOR=" | cut -f 2 -d "="``udevadm info --name=$device | grep SERIAL_SHORT | cut -f 2 -d "="`"
+		echo "SER: >$serial<"
+		if [ -z $serial ] ; then
+		    t3="- \\"
+		else
+		    t3="$serial \\"
+		fi
+		t4=$(get_mountpoint $device)
+		echo "MOUNTP: >$t4<"
+		break
+	    fi
+	done <$TEMPFILE1
+    fi
+done
+
+#process last line!
+t1=""
+t2=""
+t3=""
+t4=""
+while read i; do
+    #echo "probing dev ${i}"
+    if [ ${i} == $device ] ; then
+	echo "FOUND DEVICE $device"
+	t1="FALSE `echo $line |cut -f 5 -d " "`"
+	t2="`echo $line |cut -f 4 -d " "` \\"
+	serial="`udevadm info --name=$device | grep SERIAL_SHORT | cut -f 2 -d "="`"
+	echo "SER: >$serial<"
+	if [ -z $serial ] ; then
+	    t3="- \\"
+	else
+	    t3="$serial \\"
+	fi
+	t4=$(get_mountpoint $device)
+	break
+    fi
+done <$TEMPFILE1
+
+if [ ! -z $t1 ] && [ ! -z $t2 ] ; then
+    echo "$t1 $t2 $4 $t3" >> $TEMPFILE
+#    echo "$t1 $t2 $t3" >> $TEMPFILE
+fi
+
+DISKRST=`bash $TEMPFILE`
+
+if [ -z $DISKRST ] ; then
+    echo "NO DISK SELECTED - EXIT."
+    return 1
+else
+    echo "DISK $DISKRST SELECTED."
+    return 0
+fi
+}
+
+
+
+function check4mount()
+{
+#ah 10/19 get mountpoint from fstab
+#uses also cryptdisks and raids
+mpt=$(get_mountpoint $DISKRST)
+ret=$?
+
+# check whether it is mounted
+for line in `mount`
+do
+#    echo $line | grep "/dev/$DISKRST"
+    if [ $mpt != "none" ] ; then
+	echo $line | grep "$mpt"
+	if [ $? -eq 0 ] ; then
+	    #this disk is mounted we can't continue
+	    zenity --error --text "SORRY - BUT DISK IS MOUNTED - CAN'T CONTINUE\n\nIF YOU WANT TO USE THIS DISK PLEASE UMOUNT IT."
+	    return 1
+	fi
+    fi
+done
+
+#ah  10/19 ask if continue when mountpoint is in fstab
+if [ $ret -eq 1 ] ; then
+    #disk has mountpoint in fstab
+    zenity --question --text "Selected Disk is not mounted but\nMountpoint of selected disk is still in fstab\n\nYou should remove it before proceeding\n\nDo you want to continue?"
+    return $?
+fi
+if [ $ret -eq 3 ] ; then
+    #disk has entry in crypttab
+    zenity --question --text "Selected Disk is not mounted but\nDisk has entry in crypttab\nand maybe in fstab\n\nYou should remove it before proceeding\n\nDo you want to continue?"
+    return $?
+fi
+if [ $ret -eq 4 ] ; then
+    #disk has entry in mdadm.conf
+    zenity --question --text "Selected Disk is not mounted but\nDisk has entry in mdadm.conf\nand maybe in fstab\n\nYou should remove it before proceeding\n\nDo you want to continue?"
+    return $?
+fi
+return 0
+}
+
+
+function getdisksize()
+{
+fdisk -l /dev/$DISKRST >$TEMPFILE2
+if [ $? -eq 0 ] ; then
+    #get disksize
+    let lctr=0
+    let DISKSIZE=0
+    while read line
+    do
+	let lctr=$lctr+1
+
+	echo $line | grep -E "Disk|Festplatte.*[Bb]ytes"
+	if [ $? -eq 0 ] ; then
+	    let DISKSIZE=`echo $line|cut -f 5 -d " "`
+	    break
+	fi
+    done < $TEMPFILE2
+
+    if [ $DISKSIZE -gt 0 ] ;then
+	echo "DISKSIZE:$DISKSIZE"
+	return 0
+    else
+	echo "CAN'T DETECT DISKSIZE"
+	return 2
+    fi
+else
+    #fdisk error -  abort
+    return 1
+fi
+}
+
+#used for luks if indexfiles-folder is crypted
+function check_index_space()
+{
+mount |grep indexfiles
+if [ $? -eq 0 ]; then
+	#indexfiles-Container found
+	#check available space
+    let INDEXSIZE=($DISKSIZE/100)*$DDUMBSIZE/1800
+    let AVAIL=`df |grep indexfiles|awk '{print $4}'`*1024
+    if [ $AVAIL -gt $INDEXSIZE ]; then
+        return 0
+    else
+        return 1
+    fi
+else
+	#no container found
+	#there should be enough space on disk
+    return 0
+fi
+}
+
+function get_mountpoint()
+{
+  dev="/dev/$11"
+  type="dev"
+  while true
+  do
+    blk=`blkid $dev`
+    if [ $? -eq 0 ] ; then
+      echo $blk |grep linux_raid_member > /dev/null
+      if [ $? -eq 0 ] ; then
+        code=`echo $blk |cut -f 6 -d \"`
+        dev=`grep $code /etc/mdadm/mdadm.conf |cut -f 2 -d " "`
+	type="raid"
+        continue
+      fi
+
+      echo $blk |grep crypto_LUKS > /dev/null
+      if [ $? -eq 0 ] ; then
+        uuid=`echo $blk |cut -f 2 -d \"`
+	tab=`grep $uuid /etc/crypttab | cut -f 1 -d " "`
+	grep $uuid /etc/crypttab > /dev/null
+	if [ $? -eq 0 ] ; then
+          dev=/dev/mapper/`grep $uuid /etc/crypttab | cut -f 1 -d " "`
+	  type="crypt"
+          continue
+	else
+	  dev="/dev/mapper"
+	  type="cryptno"
+          continue
+	fi
+      fi
+      uuid=`echo $blk |cut -f 2 -d \"`
+      fstab=`grep $uuid /etc/fstab`
+      if [ $? -eq 0 ] ; then
+        mpt=`echo $fstab | tr -s " " |cut -f 2 -d " "`
+	echo "$mpt"
+	return 1
+      else
+	echo "none"
+	return 0
+     fi
+    else
+	if [ $type == "crypt" ]; then
+	  echo "crypted:$dev"
+	  return 3
+	elif [ $type == "raid" ]; then
+	  echo "raid_not_active"
+	  return 4
+	elif [ $type == "cryptno" ]; then
+	  echo "crypted,no_config"
+	  return 5
+	else
+	  echo "dev_not_found"
+	fi
+	return 2
+    fi
+  done
+}
+#used for luks
+function codify()
+{
+zenity --question --text "Do you want to prepare your Disk with coding?"
+}
+
+function sure1()
+{
+echo "DO YOU REALLY WANT TO FORMAT THIS DISK ?????" > $TEMPFILE2
+echo "" >>$TEMPFILE2
+fdisk -l /dev/$DISKRST >>$TEMPFILE2
+zenity --width=800 --height=400 --text-info  --font="courier bold" --filename $TEMPFILE2
+}
+
+
+function sure2()
+{
+zenity --question --text "WARNING: ALL DATA ON DISK $DISKRST WILL BE DELETED. \n\nDO YOU REALLY WANT TO CONTINUE?"
+}
+
+
+function sure3()
+{
+zenity --question --text "LAST POSSIBILITY TO STOP NOW - YOU ARE 101% SURE? \n\nDO YOU REALLY WANT TO CONTINUE AND DESTROY ALL DATA ON THE DEVICE?"
+}
+
+
+#change the central config file and add the new device to our devicelist
+function addnewdev2config()
+{
+#DDDEVICELIST="sdc1 sdd1 sde1"
+echo $DDDEVICELIST | grep $MPOINT > /dev/null
+# ah: V 0.0.7.18.9.19
+if [ ! $? -eq 0 ]; then
+    echo "patching $CONFIGFILE will add $MPOINT"
+    primifileeditor "$CONFIGFILE" "DDDEVICELIST" "DDDEVICELIST=\"${DDDEVICELIST} $MPOINT\""
+    if [ -f $CONFIGFILE.0 ];then
+        let f=0
+        while [ $f -lt 100 ];do
+            if [ -f $CONFIGFILE.$f ];then
+                echo "patching $CONFIGFILE.$f will add $MPOINT"
+                primifileeditor "$CONFIGFILE.$f" "DDDEVICELIST" "DDDEVICELIST=\"${DDDEVICELIST} $MPOINT\""
+            fi
+            let f=$f+1
+        done
+    fi
+else
+    echo "TO PATCH $CONFIGFILE IS NOT REQUIRED."
+fi
+
+source $CONFIGFILE
+echo "DDDEVICELIST: $DDDEVICELIST"
+}
+
+
+function bufferdisk_is_luks1()
+{
+if [ -f /etc/crypttab ]; then
+    UUIDBUFFERDISK=`cat /etc/crypttab |grep "bufferdisk UUID" |cut -f 2 -d " "|cut -f 2 -d "="`
+    cryptsetup isLuks --type luks1 /dev/disk/by-uuid/$UUIDBUFFERDISK
+    return $?
+else
+    return 1
+fi
+}
+
+
+#########################################################
+#                       START                           #
+#########################################################
+
+#create diskfile
+rm -f $TEMPFILE1
+for i in ${DISKS}; do
+    echo "sd${i}" >> $TEMPFILE1
+done
+
+SAVEIFS=$IFS
+IFS=$(echo -en "\n\b")
+
+selectdisk
+if [ ! $? -eq 0 ] ; then
+    echo "ABORT AFTER DISK SELECTION"
+    exit 1
+fi
+
+check4mount
+if [ ! $? -eq 0 ] ; then
+    echo "ABORT AFTER MOUNT CHECK."
+    exit 1
+fi
+
+#used for luks: Question if encoding should be used
+codify
+CODIFY=$?
+
+sure1
+if [ ! $? -eq 0 ] ; then
+    echo "ABORT AFTER FIRST QUESTION"
+    exit 1
+fi
+
+sure2
+if [ ! $? -eq 0 ];then
+    echo "ABORT AFTER SECOND QUESTION"
+    exit 1
+fi
+
+sure3
+if [ ! $? -eq 0 ];then
+    echo "ABORT AFTER THIRD QUESTION"
+    exit 1
+fi
+
+getdisksize
+if [ ! $? -eq 0 ];then
+    echo "ABORT AFTER GETDISKSIZE"
+    zenity --error --text "DISK FORMAT FAILED - CAN'T GET DISKSIZE!"
+    exit 1
+fi
+
+#used for luks if indexfiles-folder is crypted
+check_index_space
+if [ ! $? -eq 0 ];then
+    echo "ABORT AFTER CHECK INDEXFILES-CONTAINER"
+    zenity --error --text "DISK FORMAT FAILED - NOT ENOUGH SPACE IN INDEXFILES-CONTAINER!"
+    exit 1
+fi
+
+
+#so either user is foolish or the disk is really for us !!!
+#start formating
+
+if [ $DEBUGFLAG -eq 0 ] ; then
+    partandformat | zenity --width=600 height=400 --progress --auto-close --title="formating $DISKRST" --text="start formating $DISKRST" --percentage=0
+    if [ ! ${PIPESTATUS[0]} -eq 0 ] ; then 
+	echo "FORMAT FAILED"
+	zenity --error --text "DISK FORMAT FAILED - CAN'T CONTINUE\n\nRUN DEBUG VERSION TO SEE WHAT'S WRONG."
+	exit 1
+    fi
+else
+    partandformat
+    if [ ! $? -eq 0 ] ; then 
+	echo "FORMATING FAILED"
+	zenity --error --text "DISK FORMAT FAILED - CAN'T CONTINUE\n\nRUN DEBUG VERSION TO SEE WHAT'S WRONG."
+	exit 1
+    fi
+fi
+
+#start preparing (mount / init ddumbfs / indexhandling)
+if [ $DEBUGFLAG -eq 0 ] ; then
+    #be carefull - all changes in global vars are lost while piping !
+    prepdisk4mount | zenity --width=600 height=400 --progress --auto-close --title="preparing $DISKRST" --text="start preparing $DISKRST" --percentage=0
+    if [ ! ${PIPESTATUS[0]} -eq 0 ] ; then 
+	echo "PREPARING FAILED"
+	zenity --error --text "DISK PREPARION FAILED - CAN'T CONTINUE\n\nRUN DEBUG VERSION TO SEE WHAT'S WRONG."
+	exit 1
+    fi
+else
+    prepdisk4mount
+    if [ ! $? -eq 0 ] ; then 
+	echo "PREPARING FAILED"
+	zenity --error --text "DISK PREPARION FAILED - CAN'T CONTINUE\n\nRUN DEBUG VERSION TO SEE WHAT'S WRONG."
+	exit 1
+    fi
+fi
+
+if [ ! $DEBUGFLAG -eq 0 ] ; then
+    echo "press key to continue ..."
+    read keyval
+fi
+
+IFS=$SAVEIFS

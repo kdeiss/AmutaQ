@@ -1,0 +1,239 @@
+#! /bin/bash
+# by k.deiss@it-userdesk.de
+# crc check after copy from bufferdisk
+# V 0.0.1 1.5.14 initial release
+# V 0.0.2.7.10.14 mail changed to mail.lib
+# V 0.0.4.1.1.16 check whether the source is already processed (see crccheckS)
+# V 0.0.5.2.1.16 MEGA-BUG wrong result files compared!
+# V 0.0.6.10.1.16 tee removed
+# V 0.0.7.11.1.16 CRC ERR Mail formatted
+# V 0.0.8.6.4.16 exclude ASYNC.OK from crc check
+# V 0.0.9.19.11.17 check await 
+# V 0.1.0.21.12.19 Hotfix for NFS Volumes
+#don't edit from here
+
+source /opt/AmutaQ!/etc/AmutaQ!.conf
+
+LOG=$ASYNC_LOG
+TMP="/tmp/$$.tmp"
+TMP2="/tmp/$$2.tmp"
+MAILTMP="/tmp/acrcmail_$$.tmp"
+SYSREPORT="/opt/AmutaQ!/webmin/log1.sh"
+
+function ex_and_clean()
+{
+if [ -f $TMP ];then
+    rm -f $TMP
+fi
+
+if [ -f "$TARGETDIR/.crc32" ];then
+    rm -f "$TARGETDIR/.crc32"
+fi
+
+if [ -f "$SOURCEDIR/.crc32" ];then
+    rm -f "$SOURCEDIR/.crc32"
+fi
+
+echo "" >> $LOG
+}
+
+function check_signal()
+{
+
+	# Nicht bei wait stoppen - async weiterlaufen lassen! 
+	# wait nur bei expliziter waita semaphore!
+	let wctr=0
+	while [ -f $SIGNAL/waita ]
+	do
+
+	    if [ $wctr -gt 5 ] ; then 
+		let wctr=0
+	    fi
+
+	    if [ $wctr -eq 0 ] ; then 
+		echo "`date` INF $0 (ID: $ctr) waita signal found. Waiting ....." >> $LOG 
+		let wctr=0
+	    fi
+
+	    let wctr=$wctr+1
+	    sleep 60
+	done
+
+
+	if [ -f $SIGNAL/switch ] ; then
+	    echo "`date` INF $0 (ID: $ctr) stoped: switch is pending." >> $LOG;
+	    ex_and_clean
+	    exit 0
+	fi
+
+	if [ -f $SIGNAL/stop ] ; then
+	    echo "`date` INF $0 (ID: $ctr) stoped: stop is pending." >> $LOG;
+	    ex_and_clean
+	    exit 0
+	fi
+
+	if [ -f $SIGNAL/astop ] ; then
+	    echo "`date` INF $0 (ID: $ctr) stoped: astop is pending." >> $LOG;
+	    ex_and_clean
+	    exit 0
+	fi
+
+
+
+}
+
+
+#check parms
+
+if [ -z $1 ]; then
+    echo `date` "usage $0 SOURCE TARGET" >> $LOG
+    exit 1
+fi
+
+if [ -z $2 ]; then
+    echo `date` "usage $0 SOURCE TARGET" >> $LOG
+    exit 1
+fi
+
+if [ ! -d $1 ]; then
+    echo `date` "invalid source - usage $0 SOURCE TARGET" >> $LOG
+    exit 1
+else
+    SOURCEDIR=$1    
+fi
+
+if [ ! -d $2 ]; then
+    echo `date` "invalid target - usage $0 SOURCE TARGET" >> $LOG
+    exit 1
+else
+    TARGETDIR=$2
+fi
+
+#maillib includen
+source /opt/AmutaQ!/lib/mail.lib
+
+#ctr=`date +%s`
+ctr=$$
+SAVEIFS=$IFS
+IFS=$(echo -en "\n\b")
+
+# check whether crc check is running / or already done in source dir
+if [ -f "$SOURCEDIR/.crc32" ] || [ -f "$SOURCEDIR/checksum.crc" ] ; then
+    if [ -f "$SOURCEDIR/.crc32" ]; then
+	echo "`date` INF crc check in sourcedir already running." >> $LOG
+    fi
+    if [ -f "$SOURCEDIR/checksum.crc" ]; then
+	echo "`date` INF crc check in sourcedir already done." >> $LOG
+    fi
+else
+    echo "`date` INF starting crc check $SOURCEDIR. (ID:$ctr)" >> $LOG
+    RST=""
+    echo $$ > "$SOURCEDIR/.crc32"
+
+    for f in `ls $SOURCEDIR`
+    do
+	check_signal
+	if [ -f "$SOURCEDIR/$f" ] ; then
+	    #HOTFIX
+    	    echo $f | grep "ASYNC.OK" > /dev/null # exclude this from crc check
+	    if [ ! $? -eq 0 ] ; then
+		echo "`date` INF start crc check (source) for file $f (ID:$ctr)" >> $LOG
+		TRST="`cksum \"$SOURCEDIR/$f\"|cut -f 1 -d \"/\"`\n"
+		if [ $? -eq 0 ] ; then
+		    RST="${RST}${f}:$TRST"
+		else
+		    echo "`date` ERR finished CRC check (source) failed in cksum $f (ID:$ctr)" >> $LOG
+		    ex_and_clean
+		    exit 1
+		fi
+	    fi
+	fi
+    done
+
+    printf $RST > $SOURCEDIR/checksum.crc
+    echo "`date` INF finished crc check (source) in $SOURCEDIR. (ID:$ctr)" >> $LOG
+    echo "" >> $LOG
+    rm -f "$SOURCEDIR/.crc32"
+fi
+
+echo "`date` INF starting crc check $TARGETDIR. (ID:$ctr)" >> $LOG
+RST=""
+#ah: hotfix for NFS Volume
+#echo $$ > "$TARGETDIR/.crc32"
+touch $TARGETDIR/.crc32 2>> $LOG
+sleep 1
+chmod 666 $TARGETDIR/.crc32 2>> $LOG
+sleep 1
+echo $$ > "$TARGETDIR/.crc32"
+
+
+if [ -f "$TARGETDIR/checksum.crc" ] ; then
+    rm -f $TARGETDIR/checksum.crc
+fi
+
+for f in `ls $TARGETDIR`
+    do
+	check_signal
+	if [ -f $TARGETDIR/$f ] ; then
+	    #HOTFIX
+	    echo $f | grep "ASYNC.OK" > /dev/null # exclude this from crc check
+	    if [ ! $? -eq 0 ] ; then
+		echo "`date` INF start crc check (target) for file $f (ID:$ctr)" >> $LOG
+		TRST="`cksum \"$TARGETDIR/$f\"|cut -f 1 -d \"/\"`\n"
+		if [ $? -eq 0 ] ; then
+		    RST="${RST}${f}:$TRST"
+		else
+		    echo "`date` ERR finished CRC check (target) failed in cksum $f (ID:$ctr)" >> $LOG
+		    ex_and_clean
+		    exit 1
+		fi
+	    fi
+	fi
+    done
+
+#ah: hotfix for NFS Volume
+#printf $RST > $TARGETDIR/checksum.crc
+touch $TARGETDIR/checksum.crc 2>> $LOG
+sleep 1
+chmod 666 $TARGETDIR/checksum.crc 2>> $LOG 
+sleep 1
+printf $RST > $TARGETDIR/checksum.crc
+IFS=$SAVEFS
+
+if [ -f "$SOURCEDIR/checksum.crc" ] ; then
+    sleep 60
+    diff -y $SOURCEDIR/checksum.crc $TARGETDIR/checksum.crc >> $LOG
+    if [ $? -eq 0 ];then
+	echo "`date` INF finished CRC check, both copies fine. (ID:$ctr)" >> $LOG
+    else
+	msg="`date` ERR CRC ERROR in $SOURCEDIR ==> $TARGETDIR !!! (ID:$ctr)"
+	echo $msg >> $LOG
+	SUBJECT="`hostname` CRC ERROR"
+	TXTFILE=$MAILTMP
+	TXT=""
+
+	# make a report 
+	echo "Serious error detected in CRC check." > $TMP2
+	echo "" >> $TMP2
+	echo "Last 20 lines of logfile:" >> $TMP2
+	tail -n 20 $LOG >> $TMP2
+	echo "" >> $TMP2
+	echo "System state:" >> $TMP2
+	$SYSREPORT >> $TMP2
+	while read line
+	do
+	    echo -e "$line" >> $MAILTMP
+	done < $TMP2
+	send_mail
+	rm -f $TMP2
+
+	# we mark the target as rotted!
+	date >  "$TARGETDIR/CRC-FAILURE"
+	cp $SOURCEDIR/checksum.crc $TARGETDIR/checksum_source.crc
+    fi
+else
+    echo "`date` WAR CRC check done in target, but sourcedir processing not yet done! (ID:$ctr)" >> $LOG
+fi
+
+ex_and_clean
+

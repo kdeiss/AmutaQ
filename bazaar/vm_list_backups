@@ -1,0 +1,120 @@
+#! /bin/bash
+# by k.deiss@it-userdesk.de
+# list available backups
+# V 0.0.1 29.9.14
+# V 0.0.2 7.1.16 adapted to multi host enviroment
+# V 0.0.3.4.8.16 touching bazaar autolog to prevent autokill of this prog
+# V 0.0.4.3.10.19 kd replacing bazaarvcb reporting tool with a simple script
+# V 0.0.5.5.10.19 kd bugfix nfs
+# V 0.0.6.12.11.20 ah add failure info on CRC-Failure
+
+#don't edit from here
+
+# this is the log file bazaar is creating automatically
+# it is monitored by control bazaar (age > 60 min will autokill this prog)
+# declaration should be moved to /etc/conf in next release 
+BAZAARLOGDIR="/opt/AmutaQ!/backup"
+BAZAARLOGFN="bazaarvcb.log"
+
+source /opt/AmutaQ!/etc/AmutaQ!.conf
+
+
+#echo connecting "$VMHOST as $VMUSER for listing backups"
+
+function list_all_backups
+{
+	if [ -f /opt/AmutaQ!/etc/AmutaQ!.conf.0 ];then 
+	    let f=0
+	    #echo "This system is backing up several ESXi Hosts."
+	    while [ $f -lt 100 ];do
+		if [ -f /opt/AmutaQ!/etc/AmutaQ!.conf.$f ];then
+		    source /opt/AmutaQ!/etc/AmutaQ!.conf.$f
+		    echo ""
+		    echo "Backups for ESXi Host ${VMHOST}:"
+		    list_all_backups-aux $1
+		else
+		    break
+		fi
+		let f=$f+1
+	    done
+	else
+	    source /opt/AmutaQ!/etc/AmutaQ!.conf
+	    echo ""
+	    echo "Backups for ESXi Host ${VMHOST}:"
+	    list_all_backups-aux $1
+	    echo ""
+	fi
+}
+
+function list_all_backups-aux
+{
+TARGET=$1
+
+for VM2LIST in $VMLIST
+    do
+	echo "${VM2LIST}:"
+	#replaced bazaarvcb with show_single_backup
+	#echo "$BAZAARVCB listbackup -H $VMHOST -u $VMUSER -p $VMPASSWORD $VM2LIST $TARGET"
+	#$BAZAARVCB listbackup -H $VMHOST -u $VMUSER -p $VMPASSWORD $VM2LIST $TARGET
+	show_single_backup $VM2LIST $TARGET
+        echo ""
+    done
+}
+
+function show_single_backup
+{
+machine=$1
+directory=$2
+for fn in `ls $directory |grep $machine`
+do
+    STATUS="UNKNOWN"
+
+    if [ -f $directory/$fn/bazaarvcb.rep ];then
+	STATUS="bazarvcb OK"
+    else
+	if [ -f $directory/$fn/STATUS.ok ];then
+	    STATUS="LAMW OK"
+	else
+	    if [ -f $directory/$fn/STATUS.error ];then
+		STATUS="LAMW ERR"
+	    fi
+	fi
+    fi
+
+    if [ -f $directory/$fn/CRC-FAILURE ];then
+	STATUS="$STATUS CRC FAILURE"
+    elif [ -f $directory/$fn/checksum.crc ];then
+	STATUS="$STATUS CRC verified"
+    fi
+
+    if [ -s $directory/$fn/du.txt ];then
+	DUSTAT=`cat $directory/$fn/du.txt`
+    else
+	DUSTAT=`du -hs $directory/$fn`
+	#kd for nfs first touch
+	touch $directory/$fn/du.txt
+	echo $DUSTAT > $directory/$fn/du.txt
+    fi
+    echo -e "$DUSTAT $STATUS."
+done
+}
+
+
+#########################################################
+#                       MAIN                            #
+#########################################################
+
+# touch bazaar autolog so that this prog can't be killed accidently
+touch $BAZAARLOGDIR/$BAZAARLOGFN
+
+echo ""
+echo "Latest Backups on Bufferdisk:"
+TG=$VMBACKUPTARGET
+list_all_backups $TG
+
+echo ""
+echo ""
+echo "Backups on deduplicated filesystem:"
+TG=$ASYNCTARGET
+list_all_backups $TG
+

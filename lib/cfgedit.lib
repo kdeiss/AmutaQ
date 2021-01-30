@@ -1,0 +1,54 @@
+#! /bin/bash
+# by k.deiss@it-userdesk.de
+# very simple cfg-file editor
+# V 0.0.1.12.10.14 initial release
+# V 0.0.2.28.12.15 rm tmp file
+
+
+function primifileeditor()
+{
+#replaces line with search through replace
+fname=$1
+search=$2
+replace=$3
+
+let lfound=0
+TMPFILE="/tmp/$$_primiedit"
+
+if [ -f $fname ] ; then
+    while read line
+    do
+	if [[ ${line:0:1} == "#" ]]; then 
+	    echo $line >> $TMPFILE
+	else
+	    echo $line | grep $search > /dev/nul
+	    if [ $? -eq 0 ] ;then
+		let lfound=$lfound+1
+		echo $replace >> $TMPFILE
+	    else
+		echo $line >> $TMPFILE
+    	    fi
+	fi
+
+    done < $fname
+else
+    echo "ERR $fname not found !!! "
+    return 2
+fi
+
+if [ $lfound -eq 1 ] ; then
+    echo "$fname patched ....."
+    cp $TMPFILE $fname
+    if [ $? -eq 0 ];then
+	rm $TMPFILE
+	return 0
+    else
+	echo "ERROR DURING COPY $TMPFILE $fname !"
+	return 3
+    fi
+else
+    echo "ERR $lfound lines found with $search !!!"
+    return 1
+fi
+}
+

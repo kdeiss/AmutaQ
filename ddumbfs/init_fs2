@@ -1,0 +1,6 @@
+#! /bin/bash
+TARGET=sdd1
+
+mkdir /mnt/$TARGET/l0
+mkdir /mnt/$TARGET/l0/ddumbfs
+mkddumbfs -B 64k -s 1800G /mnt/$TARGET/l0/ddumbfs -i /opt/indexfiles/64K-1800

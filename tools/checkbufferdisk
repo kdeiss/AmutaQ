@@ -1,0 +1,201 @@
+#! /bin/bash
+# this script is called by the main prog before we write to bufferdsik
+# goal is to find out whether we have sufficient space on target, if not we try to delete already processed backups
+# by k.deiss@it-userdesk.de
+# V 0.0.1 30.12.15 initial release
+# V 0.0.2 6.1.16 bugfix
+# V 0.0.3 10.1.16 bugfix
+# V 0.0.4.11.1.16 df -hl
+# V 0.0.5.7.4.16 better log in case of error
+# V 0.0.6.2.8.16 $ESTIMTED_SIZE_OF_NEW_MACHINE
+# V 0.1.0.27.3.17 get_freeblocksonbufferdisk/check_bufferdisk bugfix
+
+#the size we assume for a freshly added machine
+ESTIMTED_SIZE_OF_NEW_MACHINE=999999999 #1T
+ESTIMTED_SIZE_OF_NEW_MACHINE=199999999 #200GB
+
+
+source /opt/AmutaQ!/etc/AmutaQ!.conf
+
+#set -x
+
+VM=$1
+
+
+if [ -z $VM ] ; then
+    echo "`date` ERR illegal call - usage: $0 VMDisplayName" 
+    exit 0
+fi
+
+
+function check_bufferdisk
+{
+VMBACKUPDEVTMP=`dirname $VMBACKUPTARGET`
+VMBACKUPDEV=`mount | grep $VMBACKUPDEVTMP |cut -f 1 -d " "`
+
+let n=0
+let PERC=100
+for RSTSTRING in `df -hl | grep $VMBACKUPDEV`
+    do
+        if [ $n -eq 4 ] ; then
+            let PERC=`echo $RSTSTRING|cut -f 1 -d %`
+        fi
+        let n=$n+1
+    done
+    return $PERC
+}
+
+
+function get_freeblocksonbufferdisk
+{
+VMBACKUPDEVTMP=`dirname $VMBACKUPTARGET`
+VMBACKUPDEV=`mount | grep $VMBACKUPDEVTMP |cut -f 1 -d " "`
+
+let n=0
+let PERC=100
+for RSTSTRING in `df -l  | grep $VMBACKUPDEV`
+    do
+        if [ $n -eq 3 ] ; then
+            FREEBLOCKS=$RSTSTRING
+            break
+        fi
+        let n=$n+1
+    done
+}
+
+
+function searchvm2delete
+{
+VM=$1
+tmp="/tmp/nas-never"
+touch $tmp
+let RST=1
+
+ls $VMBACKUPTARGET | grep $VM > /dev/null
+if [ $? -eq 0 ] ; then
+    echo "`date` INF $VM found on bufferdisk" 
+
+    echo "MWN" > $tmp
+    ls "$VMBACKUPTARGET" >> $tmp
+    while read line 
+    do
+	echo $line | grep $VM > /dev/null
+	if [ $? -eq 0 ] ; then
+	    #echo "$VMBACKUPTARGET/$line" 
+	    if [ -f "$VMBACKUPTARGET/$line/ASYNC.OK" ] ; then
+		echo "`date` INF Found backup to delete $VMBACKUPTARGET/$line"
+		rm -rf "$VMBACKUPTARGET/$line"
+		echo "`date` INF $VMBACKUPTARGET/$line removed $?"
+		let RST=0
+		break
+	    else
+		echo "`date` INF Backup not processed - can't delete $VMBACKUPTARGET/$line "
+	    fi
+	fi
+    done < $tmp
+else
+    echo "`date` INF No instance of $VM found on bufferdisk" 
+    # HOTFIX
+    ls -la $VMBACKUPTARGET
+fi
+#echo $RST
+rm $tmp
+return $RST
+}
+
+
+function get-requiredspace
+{
+VM=$1
+fn="/opt/AmutaQ!/etc/$VM.conf"
+if [ -f $fn ];then
+    let USEDDISKSPACE=0
+    source $fn
+    #now we should have variable USEDDISKSPACE=689053940
+    if [ $USEDDISKSPACE -gt 0 ] ; then
+	#we add at least 5GB
+	let USEDDISKSPACE=$USEDDISKSPACE+5000000
+    else
+	echo "`date` WAR No valid setting found for USEDDISKSPACE! in $fn" 
+	let USEDDISKSPACE=$ESTIMTED_SIZE_OF_NEW_MACHINE
+    fi
+else
+    echo "`date` WAR Can't access $fn"
+    let USEDDISKSPACE=$ESTIMTED_SIZE_OF_NEW_MACHINE
+    return 1
+fi
+return 0
+}
+
+
+#last try to find any VM we can delete, we exit the script in case of failure
+function searchvm2deleteLT
+{
+searchvm2delete "-"
+if [ $? -eq 0 ] ; then
+    # we delete one backup
+    sleep 10
+    get_freeblocksonbufferdisk
+    let FREESPACE_AFTER=$FREEBLOCKS-$USEDDISKSPACE
+    if [ $FREESPACE_AFTER -gt 0 ] ; then
+	echo "`date` INF $VM fits on bufferdisk, no further action required!" 
+	exit 0
+    else
+	echo "`date` INF Still not enough space - exit 1" 
+	exit 1
+    fi	
+fi
+exit 1
+}
+
+
+
+get_freeblocksonbufferdisk
+check_bufferdisk
+PBUFDISK=$?
+echo "`date` INF TARGET $VMBACKUPDEV is filled to $PBUFDISK% available $FREEBLOCKS"
+
+get-requiredspace $VM
+echo "`date` INF Assuming that we need $USEDDISKSPACE B" 
+
+let FREESPACE_AFTER=$FREEBLOCKS-$USEDDISKSPACE
+if [ $FREESPACE_AFTER -gt 0 ] ; then
+    echo "`date` INF $VM fits on bufferdisk, no further action required!" 
+    exit 0
+else
+    echo "`date` INF will search for old backups ....."
+    #first we look whether there is already one instance of the current machnine on bufferdisk
+    searchvm2delete $VM 
+    if [ $? -eq 0 ] ; then
+	# we delete one backup
+	sleep 60
+	get_freeblocksonbufferdisk
+	let FREESPACE_AFTER=$FREEBLOCKS-$USEDDISKSPACE
+	if [ $FREESPACE_AFTER -gt 0 ] ; then
+	    echo "`date` INF $VM fits on bufferdisk, no further action required!" 
+	    exit 0
+	else
+	    # echo "`date` INF Still not enough space - try to find any other VM which could be deleted" 
+	    # searchvm2deleteLT
+	    # disabled because that is dangerous - next call to bazaar will delete this machine whilst it is processed
+	    # to Do: do it only if keepversions allows bazaarvcb leave several versions 
+	    echo "`date` INF Still not enough space! Free; $FREEBLOCKS Required: $USEDDISKSPACE"
+	fi	
+
+# see upper comment 
+#    else
+	#ok lets look for any VM
+#	echo "`date` INF Try to find any other VM which could be deleted" 
+#	searchvm2deleteLT
+
+    fi
+    exit 1
+fi
+
+
+
+if [ $LOCALLOG -eq 1 ] ; then
+    cat $LOG
+    rm  $LOG
+fi
+

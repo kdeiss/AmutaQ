@@ -1,0 +1,212 @@
+#! /bin/bash
+# V 0.0.1.29.9.14 
+# mount disk from xserver
+# requires zenity vmware ddk
+# by k.deiss@it-userdesk.de
+
+TD="/mnt/vmware"
+TMP1="/tmp/vmware.lst"
+TMP2="/tmp/vmdkmanager.tmp"
+LOG="/var/log/xmount.log"
+
+
+P1=$1
+if [ -z $P1 ];then
+    PT=`dirname $0`
+else
+    PT=$P1
+fi
+
+echo "">> $LOG
+echo "`date` INF dirname start"|tee -a $LOG
+
+#echo "PT: $PT" | tee -a $LOG
+#echo "P1: $1" | tee -a $LOG
+#echo "P2: $2" | tee -a $LOG
+#echo "P3: $3" | tee -a $LOG
+#echo "P4: $4" | tee -a $LOG
+
+
+cd $PT
+
+MACHINENAME=`ls $PT/*.vmx`
+MACHINENAME=`basename $MACHINENAME | sed "s/.vmx//g"`
+
+echo "`date` INF PT: $PT" | tee -a $LOG
+echo "`date` INF MachineName: $MACHINENAME" | tee -a $LOG
+
+VMLIB=/usr/lib/vmware-vix-disklib/lib64
+
+#look for binaries
+which vmware-mount
+if [ ! $? -eq 0 ]; then
+    echo "To use this utility you need to install VMWare DDK !!"
+    echo "See http://www.it-userdesk.de/download_ddk.html" 
+    zenity --error --text "To use this utility you need to install VMWare DDK !! \n\n See http://www.it-userdesk.de/download_ddk.html"
+    exit 1
+fi
+
+
+function probar()
+{
+	let ctr=-2
+	while read line
+	do
+	    let let ctr=$ctr+1
+	done < $TMP1
+
+        if [ $ctr -gt 0 ]; then
+	    let gctr=$ctr*2
+    	    let part=100/$gctr
+	fi
+
+	echo "PART: $part"
+
+	let ctr=-2
+	let gctr=0
+	while read line
+	do
+	    let ctr=$ctr+1
+	    if [ $ctr -gt 0 ]; then
+
+		pctr=`echo $line | cut -f 2 -d " "`
+		echo -en "mounting partition nr. $pctr  " >>$TMP2
+		
+		mkdir "$TD/$MACHINENAME/$fn/$pctr" 2> /dev/null > /dev/null
+		chmod 777 "$TD/$MACHINENAME/$fn/$pctr"
+
+		let gctr=$gctr+1
+    		let percentage=$part*$gctr
+		echo $percentage
+		echo "# mounting partition nr. $pctr"
+		sleep 1
+		`LD_LIBRARY_PATH=$VMLIB vmware-mount "$PT/$fn" $pctr "$TD/$MACHINENAME/$fn/$pctr" 2>> $TMP2 >>$TMP2`
+		if [ $? -eq 0 ] ; then
+		    let gctr=$gctr+1
+		    let percentage=$part*$gctr
+		    let percentage=$percentage-1
+		    echo " OK" >>$TMP2
+		    echo $percentage
+		    echo "# partition nr. $pctr OK"
+		    sleep 1
+		    let percentage=$part*$gctr
+		    echo "# partition nr. $pctr OK"
+		else
+		    let gctr=$gctr+1
+		    let percentage=$part*$gctr
+		    let percentage=$percentage-1
+		    echo " FAIL" >>$TMP2
+		    echo $percentage
+		    echo "# partition nr. $pctr FAIL"
+		    sleep 1
+		    let percentage=$part*$gctr
+		    echo "# partition nr. $pctr FAIL"
+		fi
+		
+	    fi
+	done < $TMP1
+}
+
+
+#zeige mounts
+DISKS=`LD_LIBRARY_PATH=$VMLIB vmware-mount -L`
+#echo "DISKS:$DISKS"
+echo $DISKS | grep ".vmdk" 2>/dev/null > /dev/null
+if [ $? -eq 0 ] ; then
+    zenity --question --text "Warning: $DISKS  \n \n Going to unmount these disks. Continue?"
+    if [ $? -eq 0 ] ; then
+	#umount all
+	`LD_LIBRARY_PATH=$VMLIB vmware-mount -x 2> /dev/null > /dev/null`
+	sleep 1
+	`LD_LIBRARY_PATH=$VMLIB vmware-mount -x 2> /dev/null > /dev/null`
+
+	if [ ! $? -eq 0 ] ; then
+	    echo "Error in umount!  -  exit 1"
+	    #ende
+	    zenity --error --text "Can't unmount VM disks!" 
+	    exit 2
+	else
+	    echo "umount ok!"
+	fi
+    else
+	#user says no
+	exit 1	
+    fi
+#nix mounted nix action
+fi
+
+echo "start mount"
+
+SAVEIFS=$IFS
+IFS=$(echo -en "\n\b")
+
+#echo "" > $TMP2
+
+
+for fn in $( ls -1 *.vmdk  )
+do
+    echo $fn | grep "flat." > /dev/null
+    if [ ! $? -eq 0 ] ; then
+	#echo "" >>$TMP2
+	echo "mounting file: $fn" >>$TMP2
+	#get the list nownow 
+	`LD_LIBRARY_PATH=$VMLIB vmware-mount -p "$PT/$fn" 2>>$TMP2> $TMP1`
+	echo "vmware-mount -p $PT/$fn ==> `cat $TMP1`"
+	cat $TMP1 >>$TMP2
+
+	mkdir "$TD/$MACHINENAME" 2> /dev/null > /dev/null
+	chmod 777 "$TD/$MACHINENAME"
+	mkdir "$TD/$MACHINENAME/$fn" 2> /dev/null > /dev/null
+	chmod 777 "$TD/$MACHINENAME/$fn"
+
+	let ctr=-2
+	probar | zenity --width=400 height=200 --progress --auto-close --title="Mounting Disk $fn" --text="start mount ..." --percentage=0
+	echo "" >>$TMP2
+    fi
+done
+
+IFS=$SAVEIFS
+
+zenity --width=600 --height=400 --text-info  --filename $TMP2
+RUNTHUNAR=$?
+
+rm -f $TMP1
+rm -f $TMP2
+
+if [ $RUNTHUNAR -eq 0 ] ; then 
+    #/usr/bin/gksudo -u dasi /usr/bin/thunar $TD
+    /usr/bin/thunar $TD/$MACHINENAME
+    zenity --question --text "Dismount disks ?"
+    if [ $? -eq 0 ] ; then
+	#umount now
+        #export LD_LIBRARY_PATH=$VMLIB vmware-mount -L
+	DISKS=`LD_LIBRARY_PATH=$VMLIB vmware-mount -L`
+	echo $DISKS | grep ".vmdk" 2>/dev/null > /dev/null
+	if [ $? -eq 0 ] ; then
+    	    #umount all
+	    `LD_LIBRARY_PATH=$VMLIB vmware-mount -x 2> /dev/null > /dev/null` 
+	    sleep 1
+	    `LD_LIBRARY_PATH=$VMLIB vmware-mount -x 2> /dev/null > /dev/null` 
+	    if [ ! $? -eq 0 ] ; then
+		echo "Error in umount! - exit 2"
+		#ende
+		zenity --error --text "Can't unmount VM disks!"
+		exit 2
+	    else
+		echo "umount ok!"
+        	zenity --info --text "umount ok!"
+	    fi
+	#no disk mounted
+	fi
+    #user abort
+    fi
+fi
+
+echo "`date` $0 stoped." | tee -a $LOG
+
+
+#echo press key
+#read anser
+exit 0
+
+

@@ -1,0 +1,6 @@
+
+JF="/mnt/bufferdisk/RESTORE/material/spool/ASYNC_20160730210202"
+TF="/tmp/ASYNC_20160730210202"
+
+cp $JF $TF
+/opt/AmutaQ!/tools/clone2secondserver $TF CLONER4WEBER-DOM &

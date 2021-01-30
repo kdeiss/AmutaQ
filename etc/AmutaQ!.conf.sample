@@ -1,0 +1,96 @@
+#credentials for accessing the esxi host
+VMUSER=root
+VMPASSWORD=passwort
+VMHOST=192.168.0.100
+VMLIST="AmutaQ!"
+
+
+# in direct mode - how many versions on the target (ddumbfs) disk
+KEEPVERSIONSONFINALTARGET=50
+
+
+# the device list - disks have to be mounted to /mnt/sdx
+DDDEVICELIST="sdc1"
+
+
+# make crc check each n backups - these backups go to bufferdisk - all other backups go directly to ddumbfs disk
+# to disable async ( =crc-check =slow) ser it to -1, to use it always set it to 0. All aother val will do it n times.
+# e.g. 2 means after two backups direct to ddumbfs it will do one async backup
+let PARANOIAMODE=0
+
+
+# in async mode - how many versions on the buffer disk
+let KEEPVERSIONS=1
+
+
+# maximal fill on ddumbs - if the ddumbs system is filled higher the amount of backups will be auto adjusted
+let FILLMAX=85
+
+
+# hosuekeeping is called each diskswitch
+# all backuops elder than this value which are not crc checked will be deleted
+# note the + sign!
+HOUSEKEEPERAGE=+20
+
+
+# this values are for the tool x-formatdisk - this value describes the ratio between physical and virtual (ddumbfs) space on the disk.
+# the ddumbfs partition ALWAYS has to be smaller than the physical disk, because it needs space for its metadata
+# A value of 80 (80%) has been found a good value which fits for most scenarios
+FILESYSTEM="ext4"
+let DDUMBSIZE=80
+
+
+# in lazybone mode (=1) the system will create exactly one backup per day per vm
+let LAZYBONEFLAG=1
+
+
+# if 1 we start CRC check completly in background
+# Note this is faster but may cause a very high I/O on your (usb?) device 
+let ALLOWCRCINBACKGROUND=0
+let ALLOWCRCSOURCEINBACKGROUND=0
+
+# This is IP of this machine with which it is connected to the ESXi Host
+# It is recommended to build a dedicated network for backup purpose
+BACKUPNETWORK_IP=192.168.125.24
+
+
+#don't edit from here
+
+#mountpoint of ddumbfs
+DDUMBVOL="/mnt/ddumbfs"
+
+#the final target (backup from backup in async mode) this should be the ddup filesystem
+ASYNCTARGET="$DDUMBVOL/bazaar" 
+
+#the buffer target
+VMBACKUPTARGET="/mnt/bufferdisk/bazaar"
+
+#where to find bazaar binary
+BAZAARVCB="/usr/local/bin/bazaarvcb"
+
+#AmutaQ! Job spool and SIGNAL directory
+SPOOLDIR="/opt/AmutaQ!/backup/spool"
+SIGNAL="/opt/AmutaQ!/backup/signal"
+
+#main log file
+RSYNC_LOG="/var/log/nfs1.log"
+
+#async log file
+ASYNC_LOG=/var/log/async.log
+
+#target (hdd on which ddumbfs is running - nearly obsolete!)
+TARGETHD="sdd1"
+
+source /opt/AmutaQ!/etc/version
+
+#with this variable one can choose the main backup tool. Currently this can be BAZA (bazaar) or LAMW (by W.Lam). Note BAZA is oA is only compatible to ESXi 5.5!
+BACKUPTOOL=LAMW
+
+#How many cpu to use with ddumbfs
+CPUPOOL4DDUMB=0
+
+#If there should be a further backup to a nonlocal disks after the regular backup specify here the diskname
+CLOUDDISK=NONE
+
+#The local spool for jobs which will be backuped to the cloud disk
+SPOOLD4CLOUD=/opt/AmutaQ!/backup/spool4cloud

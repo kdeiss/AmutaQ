@@ -1,0 +1,34 @@
+#! /bin/bash
+# by k.deiss@it-userdesk.de
+# controls whether a backup in bufferdisk has to be cloned into a second server
+
+# V 0.0.1.28.7.16
+
+source /opt/AmutaQ!/etc/AmutaQ!.conf
+LOG=$RSYNC_LOG
+
+
+##############script detection#########################
+LOCKFILE=/tmp/$(basename $0).$$.lck
+
+
+del_lock()
+{
+    echo "`date` WAR $0 external signal caught, exiting (clone2secondserver)." >> $LOG
+    rm -f $LOCKFILE
+}
+
+trap "del_lock ; exit 1" 2 9 15
+echo $$ > $LOCKFILE
+##############script detection#########################
+
+
+
+$0-aux $1 $2  2>&1 | while read line
+do
+    echo "$line (clone2secondserver)" >> $LOG #| tee -a $LOG
+done
+
+rm -f $LOCKFILE
+echo "`date` INF $0 shutdown (clone2secondserver)" >> $LOG
+

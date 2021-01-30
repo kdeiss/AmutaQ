@@ -1,0 +1,32 @@
+#! /bin/bash
+# by k.deiss@it-userdesk.de
+# V 0.0.1 21.4.17
+# use lftp to sync local folder <== from FTP server
+
+HOST="it-userdesk.de"
+USER="ftp"
+PASS="password"
+let WAIT=900
+
+SOURCEFOLDER="/httpdocs/dl/austausch/mint-ts"
+TARGETFOLDER="/mnt/bufferdisk/temp"
+
+function sync_now_local
+{
+lftp -f "
+open $HOST
+user $USER $PASS
+mirror --verbose $SOURCEFOLDER $TARGETFOLDER
+bye
+"
+return $?
+}
+
+while true
+do
+    echo "`date` Startup lftp"
+    sync_now_local
+    RST=$?
+    echo "`date` done with $RST"
+    sleep $WAIT
+done

@@ -1,0 +1,50 @@
+#! /bin/bash
+
+# by k.deiss@it-userdesk.de
+# V 0.0.1 1.5.14
+# restore virtual machine to esxi server
+
+#don't edit from here
+
+source /opt/AmutaQ!/etc/AmutaQ!.conf
+
+
+LOG="/var/log/vm_restore.log"
+TMP="/tmp/$$.tmp"
+T="/BACKUPS/restore"
+DATASTORE="[Datastore1] /"
+S=`pwd`
+S1=`basename $S`
+
+echo $S $S1 $DATASTORE
+
+zenity --forms --title="Details Restore" \
+	--text="Fill in the details for the restore." \
+	--separator="," \
+	--add-entry="Datastore Name" \
+	--add-entry="Display Name" >> addr.csv
+
+
+
+	
+
+#I want to get the values of the form in zenity (Ipaddress value written by user) in order to do some video streaming with ffmpeg, I tried several examples such as lists, forms, .. etc
+
+zenity --forms --title="Add Friend" --text="Enter Multicast address" --separator="," --add-entry="IP address" --add-entry="PORT"
+
+zenity --list --title="Record Video Stream"  --text "Enter the Multicast IP address and port of each of the video stream" --column "Video IP" --print-column=2 --multiple --column "PORT" --editable ip="0.0.0.0" port="2002"
+
+
+exit
+
+
+exit
+
+echo $S
+$BAZAARVCB restore -H $VMHOST -u $VMUSER -p $VMPASSWORD --register $S1 $S $DATASTORE | tee -a $LOG
+#$BAZAARVCB restore -H $VMHOST -u $VMUSER -p $VMPASSWORD  --listen 31033 --register $S1 $S "[Datastore1] /"
+RST=$?
+echo "`date` finished $VMGUEST ($RST)"
+echo ""
+
+exit

@@ -1,0 +1,37 @@
+#! /bin/bash
+# manual open crypted USB-Disk
+# V 0.0.1.25.09.20 ah: initial release
+# V 0.0.2.26.11.20 ah: bugfixing
+
+if [ -f /etc/crypttab ]; then  # only try cryptopen if crypt is used
+    if [ -z $1 ]; then
+        echo "No Parameter given. Usage: cryptdisk_open_manual diskname (eg. sdc1)"
+        exit 1
+    fi
+    UUID=`cat /etc/crypttab |grep "$1 " | cut -d= -f2 | cut -d" " -f1`
+    if [ ! -b /dev/disk/by-uuid/$UUID ]; then
+        echo "ERROR: $1 is not a block-Device. Give the name of the Device eg. \"sdc1\""
+        exit 1
+    fi
+    if [ -f /mnt/bufferdisk/.crypt/key_$1 ]; then  # use cryptkey-file if available
+	echo "Using Keyfile, wait a second"
+	cryptdisks_start $1
+    else # use derived key
+	echo "Using Derived Key, wait a second"
+	echo -n `/lib/cryptsetup/scripts/decrypt_derived bufferdisk``hostname` | cryptsetup luksOpen /dev/disk/by-uuid/$UUID $1
+    fi
+    if [ $? -gt 0 ]; then  #try manual key
+	echo "No key found. Please enter manual key:"
+	cryptsetup luksOpen /dev/disk/by-uuid/$UUID $1
+    fi
+else
+	echo "ERROR: No crypttab found. Is crypt used??"
+	exit 1
+fi
+
+if [ $? -eq 0 ]; then
+    echo "Disk is open. Please mount manually."
+else
+    echo "Something went wrong. Please contact your Administrator"
+    exit 1
+fi

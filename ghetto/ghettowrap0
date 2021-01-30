@@ -1,0 +1,250 @@
+#! /bin/bash
+# ESXi 5.x 
+# 
+# V 0.0.2.2.8.16 initial release
+
+source /opt/AmutaQ!/etc/AmutaQ!.conf
+LOG="/var/log/ghettowrap.log"
+
+# Variable to allow script testing, assuming the vim commands all work to issue shutdowns
+# can be "0" or "1"
+TEST=0
+
+# script waits WAIT_TRYS times, WAIT_TIME seconds each time
+# number of times to wait for a VM to shutdown cleanly before forcing power off.
+let WAIT_TRYS=10
+
+# how long to wait in seconds each time for a VM to shutdown.
+let WAIT_TIME=10
+
+# The commandline to the ESXI host
+CMDL="sshpass -p "$VMPASSWORD" ssh -o StrictHostKeyChecking=no $VMUSER@$VMHOST"
+
+
+# ------ DON'T CHANGE BELOW THIS LINE ------
+
+
+validate_shutdown()
+{
+echo "`date` INF entering validate shutdown" | tee -a $LOG
+ESXICMDRST=`$CMDL vim-cmd vmsvc/power.getstate $SRVID | grep -i "off"`
+STATUS=$?
+if [ ! -z "$ESXICMDRST" ] ; then
+    echo "`date` INF Result of vim-cmd vmsvc/power.getstate $SRVID: $ESXICMDRST" | tee -a $LOG
+fi
+if [ $STATUS -ne 0 ]; then
+    if [ $TRY -lt $WAIT_TRYS ]; then
+    # if the vm is not off, wait for it to shut down
+	TRY=$((TRY + 1))
+	echo "`date` INF Waiting for guest VM ID $SRVID to shutdown (attempt #$TRY)..." | tee -a $LOG
+	sleep $WAIT_TIME
+	validate_shutdown
+    else
+	# force power off and wait a little (you could use vmsvc/power.suspend here instead)
+	echo "`date` WAR Unable to gracefully shutdown guest VM ID $SRVID... forcing power off."| tee -a $LOG
+	if [ $TEST -eq 0 ]; then
+	    #vim-cmd vmsvc/power.off $SRVID
+	    ESXICMDRST=`$CMDL vim-cmd vmsvc/power.off $SRVID`
+	    if [ ! -z "$ESXICMDRST" ] ; then
+		echo "`date` INF Result of vim-cmd vmsvc/power.off $SRVID: $ESXICMDRST"| tee -a $LOG
+	    fi
+	fi
+	sleep $WAIT_TIME
+    fi
+fi
+}
+
+
+function stop_vm()
+{    
+ESXICMDRST=`$CMDL vim-cmd vmsvc/power.getstate $SRVID | grep -i "off\|Suspended"`
+STATUS=$?
+let TRY=0
+if [ ! -z "$ESXICMDRST" ] ; then
+    echo "`date` INF Result of vim-cmd vmsvc/power.getstate $SRVID: $ESXICMDRST" | tee -a $LOG
+fi
+
+if [ $STATUS -ne 0 ]; then
+    echo "`date` INF Attempting shutdown of guest VM ID $SRVID..." | tee -a $LOG
+    ESXICMDRST=`$CMDL vim-cmd vmsvc/power.shutdown $SRVID`
+    STATUS=$?
+    if [ ! -z "$ESXICMDRST" ] ; then
+        echo "`date` INF Result of vim-cmd vmsvc/power.shutdown $SRVID $SRVID: $ESXICMDRST" | tee -a $LOG
+    fi
+    if [ $STATUS -ne 0 ]; then
+        echo "`date` ERR during attempted shutdown of guest VM ID $SRVID..." | tee -a $LOG
+    fi
+    validate_shutdown
+else
+    echo "`date` INF Guest VM ID $SRVID already off..." | tee -a $LOG
+fi
+}
+
+
+function start_vm()
+{    
+ESXICMDRST=`$CMDL vim-cmd vmsvc/power.getstate $SRVID`
+if [ ! -z "$ESXICMDRST" ] ; then
+    echo "`date` INF Result of vim-cmd vmsvc/power.getstate $SRVID: $ESXICMDRST"| tee -a $LOG
+else
+    echo "`date` ERR during attempted startup of guest with VID $SRVID - call to ESXi failed (getstate)." | tee -a $LOG
+    return 1
+fi
+
+echo $ESXICMDRST | grep -i "off\|Suspended" >/dev/null
+if [ $? -eq 0 ]; then
+    echo "`date` INF Attempting startup of guest with VID $SRVID..." | tee -a $LOG
+    ESXICMDRST=`$CMDL vim-cmd vmsvc/power.on $SRVID`
+    STATUS=$?
+    if [ ! -z "$ESXICMDRST" ] ; then
+	    echo "`date` INF Result of vim-cmd vmsvc/power.on $SRVID: $ESXICMDRST" | tee -a $LOG
+    fi
+    if [ $STATUS -ne 0 ]; then
+        echo "`date` ERR during attempted startup of guest with VID $SRVID!" | tee -a $LOG
+	return 1
+    else
+	echo "`date` INF guest with VID $SRVID started." | tee -a $LOG
+	return 0
+    fi
+else
+    echo "`date` INF Can't start in this state." | tee -a $LOG
+    return 2
+fi
+}
+
+
+# search all our ESXi hosts for the machine which should be powered on
+function search-vm
+{
+	if [ -f /opt/AmutaQ!/etc/AmutaQ!.conf.0 ];then 
+	    let f=0
+	    while [ $f -lt 100 ];do
+		if [ -f /opt/AmutaQ!/etc/AmutaQ!.conf.$f ];then
+		    source /opt/AmutaQ!/etc/AmutaQ!.conf.$f
+		    CMDL="sshpass -p "$VMPASSWORD" ssh -o StrictHostKeyChecking=no $VMUSER@$VMHOST"
+		    ACTIVEGUESTS=`$CMDL vim-cmd vmsvc/getallvms`
+		    #echo "FOUND: $ACTIVEGUESTS"
+		    echo $ACTIVEGUESTS | grep $VM2START >/dev/null
+		    if [ $? -eq 0 ] ; then
+			echo "$VM2START FOUND! $ESXIIP $VMHOST"
+			if [ " $ESXIIP"=" $VMHOST" ] ; then
+			    SRVID=$($CMDL vim-cmd vmsvc/getallvms | grep $VM2START | cut -f 1 -d " ")
+			    if [ -z "$SRVID" ] ; then
+				echo "`date` ERR VID NOT FOUND!" | tee -a $LOG
+				return 1
+			    fi
+			    echo "`date` INF FOUND $VM2START ON $VMHOST WITH VID $SRVID" | tee -a $LOG
+  			    return 0
+			fi
+		    fi
+		else
+		    echo "`date` WAR $VM2START NOT FOUND!" | tee -a $LOG
+  		    return 1
+		fi
+		let f=$f+1
+	    done
+	    echo "`date` ERR VERY STRANGE TO BE HERE: $VM2START NOT FOUND!" | tee -a $LOG
+	    return 1
+
+	else
+	    source /opt/AmutaQ!/etc/AmutaQ!.conf
+	    CMDL="sshpass -p "$VMPASSWORD" ssh -o StrictHostKeyChecking=no $VMUSER@$VMHOST"
+	    ACTIVEGUESTS=`$CMDL vim-cmd vmsvc/getallvms`
+	    #echo "FOUND: $ACTIVEGUESTS"
+	    echo $ACTIVEGUESTS | grep $VM2START >/dev/null
+	    if [ $? -eq 0 ] ; then
+		SRVID=$($CMDL vim-cmd vmsvc/getallvms | grep $VM2START | cut -f 1 -d " ")
+		if [ -z "$SRVID" ] ; then
+		    echo "`date` ERR VID NOT FOUND!"| tee -a $LOG
+		    return 1
+		fi
+		echo "`date` INF FOUND $VM2START ON $VMHOST WITH VID $SRVID" | tee -a $LOG
+  		return 0
+	    else
+		echo "`date` WAR $VM2START NOT FOUND ON ESXi server(s)!" | tee -a $LOG
+  		return 1
+	    fi
+	fi
+}
+
+function create_nfs_link()
+{
+echo "esxcfg-nas -a $NFSDATASTORENAME -o $VMHOST -s $NFSTARGET"
+$CMDL "esxcfg-nas -a $NFSDATASTORENAME -o $ME -s $NFSTARGET"
+RST=$?
+#echo $RST
+
+#check whether exist + writeable
+$CMDL "date > $P2DS/$NFSDATASTORENAME/date.txt"
+RST=$?
+#echo $RST
+if [ ! $RST -eq 0 ] ; then
+    return 1
+fi
+echo "`date` INF NFS LINK $NFSDATASTORENAME OPERATIONAL" | tee -a $LOG
+}
+
+
+##########################################################
+#               main script
+##########################################################
+
+
+GHETTOBASE="/opt/AmutaQ!/ghetto"
+GCONF="ghettoVCB.conf"
+source "/opt/AmutaQ!/lib/cfgedit.lib"
+
+echo "`date` INF start $0" | tee $LOG
+
+#parameter
+VM2START="MINT17-2"
+ESXIIP="192.168.22.9"
+# either "/mnt/ddumbfs/bazaar" or "/mnt/bufferdisk/bazaar"
+TEMPPATH="/mnt/bufferdisk/bazaar"
+
+
+echo $TEMPPATH | grep "bufferdisk"
+if [ $? -eq 0 ] ; then
+    NFSDATASTORENAME="BUFFERDISK_$BACKUPNETWORK_IP"
+    NFSTARGET=`dirname $VMBACKUPTARGET`
+fi
+
+echo $TEMPPATH | grep "ddumbfs"
+if [ $? -eq 0 ] ; then
+    NFSDATASTORENAME="DDUMBFS_$BACKUPNETWORK_IP"
+    NFSTARGET=$DDUMBVOL
+fi
+
+
+AMUNFSEXPORT="$NFSTARGET/ghetto"
+ESXINFSIMPORT="/vmfs/volumes/$NFSDATASTORENAME"
+
+
+
+#prepare dir for ghetoVCB, so that esxi server can see it
+mkdir  "$AMUNFSEXPORT" 2>/dev/null
+chmod 777 $AMUNFSEXPORT
+chown nobody -R $AMUNFSEXPORT/
+chgrp nogroup -R $AMUNFSEXPORT/
+cp $GHETTOBASE/$GCONF "$AMUNFSEXPORT"
+cp $GHETTOBASE/ghettoVCB.sh "$AMUNFSEXPORT"
+#function primifileeditor() fname=$1 search=$2 replace=$3
+primifileeditor "$AMUNFSEXPORT/ghettoVCB.conf" "VM_BACKUP_VOLUME" "VM_BACKUP_VOLUME=$ESXINFSIMPORT"
+
+# now check this path from esxi server
+search-vm
+if [ $? -eq 0 ] ; then
+    echo "`date` INF VIM:$SRVID found on Host ESXIIP." | tee -a $LOG
+else
+    echo "`date` INF $VM2START not found." | tee -a $LOG
+    exit 1
+fi
+
+
+
+
+
+
+echo "`date` INF finish $0" | tee -a $LOG
+#echo "" | tee -a $LOG
+exit 0

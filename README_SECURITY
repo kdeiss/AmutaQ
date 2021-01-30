@@ -1,0 +1,29 @@
+ALLGEMEINE MASSNAHMEN
+
+Um das Control Netz (inneres Netz) zu härten schalte Dienste ab. 
+Insbesondere NFS und SMB.
+
+1) Fahre beim Systemstart NICHT das innere Netz hoch!
+
+Einstellungen in /etc/network/interfaces:
+#auto eth1
+
+2) Führe den NFS Server NICHT für die innere Karte aus
+Einstellungen in /etc/exports:
+#/mnt/bufferdisk 192.168.17.0/255.255.255.0(rw,async,no_subtree_check)
+#/mnt/ddumbfs 192.168.17.0/255.255.255.0(rw,async,no_subtree_check,fsid=20)
+
+3) Führe /opt/AmutaQ!/tools/samba_disable aus. 
+Dies deaktiviert den Start des SMB Servers.
+
+DAUERHAFTE ABSCHALTUNG INNERES NETZ (Control Netz)
+AmutaQ! benötigt eigentlich nur für den Mailversand Connectivity via des control Netzes.
+Über folgendes File kann dies gesteuert werden:
+
+/opt/AmutaQ!/etc/cif.conf
+CIFACTIVE=1 # the mechanism to on/off controlinterface ist active=1
+CIFINTERNALNET=eth1 # this is the ethernetadapter connecting to internal network 
+
+Es wird mindestens Version V 0.0.5.der mail.lib benötigt (/opt/AmutaQ!/lib/mail.lib)
+Diese fährt bei Bedarf das control Netz hoch und nach dem Mailversand wieder herunter.
+

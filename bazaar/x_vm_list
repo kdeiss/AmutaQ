@@ -1,0 +1,160 @@
+#! /bin/bash
+# by k.deiss@it-userdesk.de
+# list VMs with details on ESXI server
+# V 0.0.1.1.5.14 initial version
+# V 0.0.2.14.10.14 get the machine list from the esxi server, add these machines on demand
+# V 0.0.2.20.10.14 bugfix
+
+
+#don't edit from here
+
+CONFIGFILE=/opt/AmutaQ!/etc/AmutaQ!.conf
+
+if [ -f $CONFIGFILE ] ; then
+    source $CONFIGFILE
+else
+    zenity --width=550 --height=200 --error --text="Invalid config - can't read $CONFIGFILE !\n\nRun Setup please."
+    exit 1
+fi
+source /opt/AmutaQ!/lib/cfgedit.lib
+
+tmpfn="/tmp/x_vm_list"
+RSTFN="/tmp/$$_probar.tmp"
+MLSTFN="/tmp/$$_ml.tmp"
+
+function probar1()
+{
+    let ctr=1
+    echo 0 > $RSTFN
+
+
+    for VMGUEST in $VMLIST
+    do
+	let ctr=$ctr+1
+    done
+
+    let part=100/$ctr
+    let ctr=1
+
+    let percentage=$part*$ctr
+    let percentage=$percentage-1
+
+    echo $percentage
+    if [ ! $? -eq 0 ] ; then
+        #broken pipe user click cancel
+	exit 1
+    fi
+    echo "# list virtual machines on $VMHOST"
+
+    echo "">$tmpfn
+    let lctr=0
+    let PROBAR_EXIT=1
+    SAVEIFS=$IFS
+    IFS=$(echo -en "\n\b")
+
+    for line in `$BAZAARVCB listvm -H $VMHOST -u $VMUSER -p $VMPASSWORD`
+    do
+	let lctr=$lctr+1
+	if [ $lctr -gt 1 ];then
+	    echo $line >> $tmpfn
+	    SM=`echo $line | tr -s " " | cut -f 3 -d " "`
+	    if [ -z $SM ] ; then
+		#something went wrong .....
+		break
+	    fi
+	    if [ -z $ML ] ; then
+		let PROBAR_EXIT=0
+		ML=$SM
+	    else
+		ML="$ML $SM"
+	    fi
+	fi
+    done
+    IFS=$SAVEIFS
+    echo "" >> $tmpfn
+    let lctr=$lctr-1
+    echo "$lctr VM's found on $VMHOST: $ML" >>$tmpfn
+
+    #$BAZAARVCB listvm -H $VMHOST -u $VMUSER -p $VMPASSWORD > $tmpfn
+    #PROBAR_EXIT=$?
+
+    if [ ! $PROBAR_EXIT -eq 0 ] ;then
+	echo $PROBAR_EXIT > $RSTFN
+	echo "# error during call to ESXI server $VMHOST: $PROBAR_EXIT"
+	sleep 3
+	echo 100
+	exit 1
+    fi
+    echo "" >> $tmpfn
+
+#    for VMGUEST in $VMLIST
+    for VMGUEST in $ML
+
+    do
+	echo "" >> $tmpfn
+	let ctr=$ctr+1
+	let percentage=$part*$ctr
+	let percentage=$percentage-1
+	echo $percentage
+	if [ ! $? -eq 0 ] ; then
+	    #broken pipe user click cancel
+	    exit 1
+	fi
+	echo "# collecting information for $VMGUEST"
+	$BAZAARVCB queryvm -H $VMHOST -u $VMUSER -p $VMPASSWORD $VMGUEST >> $tmpfn
+	PROBAR_EXIT=$?
+	if [ ! $PROBAR_EXIT -eq 0 ] ;then
+	    echo $PROBAR_EXIT > $RSTFN
+	    echo "" > $MLSTFN
+	    echo "# error during call to ESXI server $VMHOST: $PROBAR_EXIT"
+    	    sleep 3
+	    echo 100
+	    return 1
+	else
+	    echo $PROBAR_EXIT > $RSTFN
+	    echo 100
+	    echo "$ML" > $MLSTFN
+	    return 0
+	fi
+    done
+}
+
+#probar1
+#
+probar1 | zenity --width=600 height=400 --progress --auto-close --title="Retrieving Info from $VMHOST" --text="connecting ESXI server ..." --percentage=0
+#it is dificult to catch the result of of a piped command, here we transport it via tempfiles
+let PBRST1=`cat $RSTFN`
+ML=`cat $MLSTFN`
+rm -f $MLSTFN
+rm -f $RSTFN
+
+
+#we show the result of our operation
+zenity --width=800 --height=400 --text-info  --font="courier bold" --filename $tmpfn
+if [ ! $? -eq 0 ] ; then 
+    echo "EXIT AFTER SHOW RESULT."
+    exit 0
+fi
+
+#add the new machine list
+zenity --question --text "Do you want to use the new machine list?\n\n$ML"
+if [ ! $? -eq 0 ] ; then 
+    echo "EXIT AFTER REQUEST FOR EDIT."
+    exit 0
+fi
+#using the primiedit
+echo "patching $CONFIGFILE will add $VMLIST $ML"
+primifileeditor "$CONFIGFILE" "VMLIST" "VMLIST=\"$ML\""
+
+
+exit 0
+if [ $PBRST1 -eq 0 ] ;then
+    zenity --width=800 --height=400 --text-info  --font="courier bold" --filename $tmpfn
+else
+    zenity --width=500 --height=200 --error --text="Could not connect ESXI server: $VMHOST"
+fi
+
+exit 0
+
+
+

@@ -1,0 +1,6 @@
+#! /bin/bash
+LOG="/tmp/vmdkmanager.log"
+echo "`date` $0 $1 startup" >> $LOG
+/usr/bin/gksu $1 
+#echo "press key to continue...."
+#read answer

@@ -1,0 +1,27 @@
+#! /bin/bash
+# close crypted device given by commandline
+# V 0.0.1.x.x.x initial version
+
+TARGETHD=$1
+echo "In arbeit"
+exit 0
+
+opencount=$(dmsetup info -c --noheadings -o open "$TARGETHD" 2>/dev/null || true)
+if [ "$opencount" ]; then
+#  echo Open $opencount | tee -a $LOG
+  let wctr=0
+  while [ "$opencount" != "0" ]
+  do
+      let wctr=$wctr+1
+        umount /mnt/$TARGETHD >/dev/null
+        if [ $wctr -gt 10 ] ; then
+              #abort with error
+              echo "`date` ERR can't umount $TARGETHD." | tee -a $LOG
+              break
+      fi
+      sleep 2
+      opencount=$(dmsetup info -c --noheadings -o open "$TARGETHD" 2>/dev/null || true)
+  done
+  #stop crypt
+  cryptdisks_stop $TARGETHD | tee -a $LOG
+fi

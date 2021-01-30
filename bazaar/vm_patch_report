@@ -1,0 +1,65 @@
+#! /bin/bash
+# by k.deiss@it-userdesk.de
+# V 0.0.1.1.1.17
+# add current disk statistic to the disk  switch report
+
+#don't edit from here
+
+source /opt/AmutaQ!/etc/AmutaQ!.conf
+source /opt/AmutaQ!/lib/discident.lib
+DISKSTATUS="/opt/AmutaQ!/webmin/status.sh"
+PLACEHOLDER1="------------------------------"
+LOG="$RSYNC_LOG"
+logfn="/var/log/cpu-stat-log"
+tmprep=$1
+
+if [ -z $tmprep ] ; then
+    echo $0 REPORTFILE
+    echo "`date` ERR can't patch report." >> $LOG
+    exit 1
+fi
+
+
+
+function patchreport
+{
+tmprep1="/tmp/finalrep.tmp"
+tmpdiskchangestat="/tmp/diskchangestat.tmp"
+$DISKSTATUS >$tmpdiskchangestat
+echo -n "" > $tmprep1
+if [ -f $tmprep ] ;then
+    while read line
+    do
+	if [ "$line" == "$PLACEHOLDER1" ];then
+	    if [ -f $tmpdiskchangestat ];then
+		echo "Current status of backup disk(s)">> $tmprep1
+		while read line2
+		do
+		    if [ -n "$line2" ];then
+			echo "$line2">> $tmprep1
+		    fi
+		done < $tmpdiskchangestat
+	    fi
+	else
+	    echo $line >> $tmprep1
+	fi
+    done < $tmprep
+    cat $tmprep1 > $tmprep
+    rm -f $tmprep1
+    rm -f $tmpdiskchangestat
+fi 
+}
+
+function report-sysstat
+{
+echo "" >> $tmprep
+echo "`date` INF CPU statistic (last 24H):" >> $tmprep
+head -n 1 $logfn >> $tmprep
+tail -n 24 $logfn >> $tmprep
+echo "" >> $tmprep
+echo "Report created `date`" >> $tmprep
+echo "$VERSION" >> $tmprep
+}
+
+patchreport
+report-sysstat

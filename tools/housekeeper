@@ -1,0 +1,33 @@
+#! /bin/bash
+# by k.deiss@it-userdesk.de
+# V 0.0.2.28.3.15
+# deletes all backups elder $AGE days which are not crc checked
+
+HOUSEKEEPERAGE=+20
+
+#don't edit from here
+
+source /opt/AmutaQ!/etc/AmutaQ!.conf
+
+LOG=$RSYNC_LOG
+
+echo "`date` INF Start housekeeping for non crc checked backups older $HOUSEKEEPERAGE days" 
+echo "`date` INF PID:$0 $$" 
+
+for VMGUEST in $VMLIST
+    do
+	CTR=`find $ASYNCTARGET -type d -name "$VMGUEST*" | wc -l`
+	echo "`date` INF Found $CTR Backups for $VMGUEST"
+	for CRCMAC in `find $ASYNCTARGET -type d -mtime $HOUSEKEEPERAGE -name "$VMGUEST*"`
+	do
+	    if [ ! -f $CRCMAC/checksum.crc ];then
+		echo "`date` INF Found Backup to remove: $CRCMAC"
+		rm -rf "$CRCMAC" ;
+		if [ $? -eq 0 ] ; then
+		    echo "`date` INF removed."
+		else
+		    echo "`date` ERR can't remove !!."
+		fi
+	    fi
+	done
+    done

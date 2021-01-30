@@ -1,0 +1,41 @@
+#! /bin/bash
+# kills all running instances of vmkfstools on ESXI Host
+# by k.deiss@it-userdesk.de
+# V 0.0.1.14.10.14 initial release
+
+TDATASTORE="datastore1" 	#Target Datastore in ESXI Server
+
+source /opt/AmutaQ!/etc/AmutaQ!.conf
+
+
+#don't edit
+
+NFSDATASTORENAME="NFSTEMP"
+P2DS="/vmfs/volumes"
+ME=`ifconfig eth0 2>/dev/null|awk '/inet addr:/ {print $2}'|sed 's/addr://'`
+CMDL="sshpass -p "$VMPASSWORD" ssh -o StrictHostKeyChecking=no $VMUSER@$VMHOST"
+NFSTARGET=$DDUMBVOL
+LOG="/var/log/vm_restore.log"
+
+
+##########################################################
+#                    FUNCTIONS
+##########################################################
+
+function findvmkfstools()
+{
+#echo "ps | grep vmkfstools"
+$CMDL ps | grep vmkfstools 
+}
+
+##########################################################
+#                    MAIN
+##########################################################
+
+let PSX=0
+let PSX=`findvmkfstools | cut -f 1 -d " "`
+if [ ! 0 -eq $PSX ] ; then
+    $CMDL kill -9 $PSX
+else
+    echo "FATAL VMKFSTOOLS NOT RUNNING!"
+fi 

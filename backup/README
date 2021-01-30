@@ -1,0 +1,7 @@
+The main program for backing up esxi 5.x 
+PATH /opt/AmutaQ!/backup
+
+backup2ddumb 
+Does the backup. Needs config in /opt/AmutaQ!/etc
+
+

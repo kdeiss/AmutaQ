@@ -1,0 +1,248 @@
+#! /bin/bash
+# by k.deiss@it-userdesk.de
+# use lftp to sync local folder ==> to FTP server
+# V 0.0.1 21.4.17
+# V 0.0.2 26.4.17 use rsync instead of ftp - requires sshpass
+# V 0.0.3 5.5.17 signaling chain
+
+USE_RSYNC=1
+let WAIT=900 # how long to wait for next cycle
+
+#HOST="it-userdesk.de"
+#USER="ftp"
+#PASS="password"
+
+HOST="10.0.3.200"
+USER="root"
+PASS="dasidose"
+
+TARGETDISK="sdc1"  # auf welche disk die temporären daten
+SOURCEFOLDER="/mnt/$TARGETDISK/rtransfer/"
+TARGETFOLDER="/mnt/bufferdisk/bazaar/rtransfer/"
+
+SIGNALFINISH="COMPRESSION_FINISHED"
+SIGNALNOSWITCH="donotswitch"
+SIGNALRUNNING="COMPRESSION_RUNNING"
+QUEUEFILE="TRANSFERQUEUE"
+TRANSFERFINISH="TRANSFER_FINISHED"
+TRANSFERRUNNING="TRANSFER_RUNNING"
+
+
+# The commandline to the remote host
+CMDL="/usr/bin/sshpass -p "$PASS" ssh -o StrictHostKeyChecking=no $USER@$HOST"
+
+
+
+function sync_now_rsync
+{
+#/usr/bin/rsync -rvatl --rsh="/usr/bin/sshpass -p $PASS ssh -o StrictHostKeyChecking=no -l $USER" $SOURCEFOLDER $USER@$HOST:$TARGETFOLDER
+#/usr/bin/rsync -rvatl --inplace --rsh="/usr/bin/sshpass -p $PASS ssh -o StrictHostKeyChecking=no -l $USER" $SOURCEFOLDER $USER@$HOST:$TARGETFOLDER
+/usr/bin/rsync -rvatlz --inplace --rsh="/usr/bin/sshpass -p $PASS ssh -o StrictHostKeyChecking=no -l $USER" $SOURCEFOLDER $USER@$HOST:$TARGETFOLDER
+
+return $?
+}
+
+function signal_transfer_finished
+{
+# signal to local directory
+
+if [ -f $SOURCEFOLDER/$SIGNALFINISH ];then
+    cp $SOURCEFOLDER/$SIGNALFINISH $SOURCEFOLDER/$TRANSFERFINISH
+else
+    echo "`date` WAR it is not possible to terminate job at this time."
+    exit 1
+fi
+
+# sync it to remote
+let rst=-1
+while [ ! $rst -eq 0 ]
+do
+    echo "`date` INF starting final sync for this job."
+    /usr/bin/rsync -rvatl --rsh="/usr/bin/sshpass -p $PASS ssh -o StrictHostKeyChecking=no -l $USER" $SOURCEFOLDER $USER@$HOST:$TARGETFOLDER
+    rst=$?
+    sleep 15
+done
+}
+
+
+
+# check whether local and remote directory is in sync
+function check_rsync
+{
+let rst=0
+let transctrok=0
+let transctrmiss=0
+let transbytesok=0
+let transbytesmiss=0
+let fsize=0
+
+f1="/tmp/f1.txt"
+f2="/tmp/f2.txt"
+f3="/tmp/f3.txt"
+echo -n "" >$f1
+echo -n "" >$f2
+echo -n "" >$f3
+cd $SOURCEFOLDER
+ls -la > $f2
+
+# clean file f1 from spaces
+# f1 contains local files
+while read line
+do
+    echo $line >> $f1
+done <$f2
+
+# list files on remote server to f2 file
+#/usr/bin/sshpass -p $PASS ssh -o StrictHostKeyChecking=no $USER@$HOST ls -la $TARGETFOLDER >$f2
+$CMDL ls -la $TARGETFOLDER >$f2
+if [ ! $? -eq 0 ];then
+    echo "`date` WAR rsync resulting in error!"
+    return 1
+fi
+
+# clean file f3 from spaces
+# f3 contains remote files
+while read line
+do
+    echo $line >> $f3
+done <$f2
+
+
+while read line
+do
+    fn=`echo $line | cut -f 9 -d " "`
+    fsize=`echo $line | cut -f 5 -d " "`
+    if [ -f "$fn" ];then
+	#echo "FN:$fn"
+	fnr=`grep $fn $f3`
+	if [ $? -eq 0 ] ; then
+	    #note there can be multilines result from grep, we have to find the proper one
+	    let fieldctr=0
+	    fnrp=""
+
+	    for i in $fnr
+	    do
+		let fieldctr=$fieldctr+1
+		if [ -z "$fnrp" ] ; then
+		    fnrp="$i"
+		else
+		    fnrp="$fnrp $i"
+		fi
+
+		#echo $fieldctr:$i
+		if [ $fieldctr -eq 9 ] ; then
+		    if [ "$i" == "$fn" ];then
+			# we found the file
+			break
+		    else
+			echo "`date` INF INCOMPLETE FILE: $i"
+			let fieldctr=0
+			fnrp=""
+		    fi
+		fi
+	    done
+
+	    if [ -z "$fnrp" ];then
+		# occurs if only broken files on remote side
+		# echo "`date` INF MISSING ON REMOTE SIDE: $fn"
+		let rst=-1
+		let transctrmiss=$transctrmiss+1
+		let transbytesmiss=$transbytesmiss+$fsize
+	    else
+		if [ "$line" != "$fnrp" ];then
+		    echo "`date` INF DIFFERENCE:"
+		    echo "$line"
+		    echo "$fnrp"
+		    let rst=-1
+		    let transctrmiss=$transctrmiss+1
+		    let transbytesmiss=$transbytesmiss+$fsize
+		else
+		    let transctrok=$transctrok+1
+		    let transbytesok=$transbytesok+$fsize
+		fi
+	    fi
+	else
+	    #echo "`date` INF MISSING ON REMOTE SIDE: $fn"
+	    let rst=-1
+	    let transctrmiss=$transctrmiss+1
+	    let transbytesmiss=$transbytesmiss+$fsize
+	fi
+    fi
+done <$f1
+
+if [ ! $rst -eq 0 ] ;then
+    let transbytesokg=$transbytesok/1000000
+    let transbytesmissg=$transbytesmiss/1000000
+    echo "`date` INF $transctrok chunks already transfered ($transbytesokg MB), but still $transctrmiss chunks left to transfer ($transbytesmissg MB)"
+else
+    echo "`date` INF $transctrok chunks transfered ($transbytesokg MB), $transctrmiss chunks left to transfer ($transbytesmissg MB)"
+    echo "`date` INF Creating terminate signal for this job."
+    signal_transfer_finished
+fi
+
+return $rst
+}
+
+
+function sync_now
+{
+lftp -f "
+open $HOST
+user $USER $PASS
+lcd $SOURCEFOLDER
+mirror --reverse --delete --verbose $SOURCEFOLDER $TARGETFOLDER
+bye
+"
+return $?
+}
+
+
+##################################################################
+##########  MAIN SCRIPT
+##################################################################
+
+
+echo ""
+echo "`date` INF Startup $0 with PID:$$"
+
+if [ -f $SOURCEFOLDER/$TRANSFERFINISH ];then
+    echo "`date` INF job `cat $SOURCEFOLDER/$TRANSFERFINISH` seems completely done!"
+    exit 0
+fi
+
+check_rsync
+if [ $? -eq 0 ];then
+    echo "`date` INF job `cat $SOURCEFOLDER/$TRANSFERFINISH` seems completely done!"
+    exit 0
+else
+    echo "`date` INF file not yet completely transfered - resuming transfer."
+fi
+
+echo "`date` INF mounting $TARGETDISK"
+mount "/mnt/$TARGETDISK"
+
+while true
+do
+    if [ $USE_RSYNC -eq 1 ] ; then
+	sync_now_rsync
+	check_rsync
+	if [ $? -eq 0 ];then
+	    echo "`date` INF job `cat $SOURCEFOLDER/$TRANSFERFINISH` seems completely done!"
+	    exit 0
+	else
+	    echo "`date` INF file not yet completely transfered!"
+	fi
+    else
+	sync_now
+    fi
+    RST=$?
+    echo "`date` INF done with $RST - waiting $WAIT sec."
+    echo ""
+    sleep $WAIT
+    echo ""
+    if [ $USE_RSYNC -eq 1 ] ; then
+	echo "`date` INF resuming $0 with rsync PID:$$"
+    else
+	echo "`date` INF resuming $0 with lftp PID:$$"
+    fi
+done

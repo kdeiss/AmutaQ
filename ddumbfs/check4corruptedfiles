@@ -1,0 +1,77 @@
+#! /bin/bash
+# by k.deiss@it-userdesk.de
+# V 0.0.1.23.3.17
+# find files which are marked as corruptes on ddumbfs filesystem
+# call with PARM 1 will delete these files 
+
+#don't edit from here
+
+source /opt/AmutaQ!/etc/AmutaQ!.conf
+LOG=/var/log/sample.log
+CFN="/l0/ddumbfs/ddfsroot/.ddumbfs/corrupted.txt"
+RFN="/mnt/sdc1/l0/ddumbfs/ddfsroot"
+PHYSLOC="/mnt/ddumbfs"
+
+# echo "`date` INF Start PID:$0 $$"
+
+function check4files
+{
+MT=`mount |grep ddumbfs|cut -f 1 -d " "`
+MT=`dirname $MT`
+MT=`dirname $MT`
+if [ -n $MT ] && [ -s "$MT$CFN" ] ; then
+    echo "WARNING `cat "$MT$CFN" |wc -l` corrupted files found in ddumbfs on disk $MT"
+    echo ""
+    return 1
+fi
+}
+
+function delcorrupted
+{
+while read line 
+do
+    fn=`echo $line|cut -f 2 -d " "`
+    fn=${fn/$RFN/$PHYSLOC}
+    if [ -f "$fn" ] ; then
+        echo "`date` INF try to delete $fn"
+	rm -f "$fn"
+    else
+	echo "`date` WAR can't access $fn"
+    fi
+done < "$MT$CFN"
+}
+
+
+function listcorrupted
+{
+while read line 
+do
+    fn=`echo $line|cut -f 2 -d " "`
+    st=`echo $line|cut -f 1 -d " "`
+    fn=${fn/$RFN/$PHYSLOC}
+    if [ -f $fn ] ; then
+	echo "Filestatus: $st for $fn"
+    else
+	echo "As corrupted marked file not found. Already deleted? ==> $fn"
+    fi
+
+done < "$MT$CFN"
+}
+
+if [ ! -z $1 ] ; then
+    let DELFLAG=$1 #2>/dev/null
+else
+    let DELFLAG=0
+fi
+
+check4files
+if [ $? -eq 1 ] ; then
+    if [ $DELFLAG -eq 1 ] ; then
+        delcorrupted
+    else
+	listcorrupted
+	echo ""
+	echo "run $0 1 to delete these files"
+	echo ""
+    fi
+fi

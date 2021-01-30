@@ -1,0 +1,7 @@
+#! /bin/bash
+# enable/disable samba server
+
+# V 0.0.1.15.11.19 initial release 
+
+#update-rc.d -f smbd remove
+update-rc.d smbd defaults

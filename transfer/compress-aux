@@ -1,0 +1,102 @@
+#! /bin/bash
+# by k.deiss@it-userdesk.de
+# use 7z to compress a tar and split it into chunks
+# V 0.0.1 21.4.17
+# V 0.0.2 5.5.17 chunksize/compression configurable
+
+source /opt/AmutaQ!/etc/AmutaQ!.conf
+
+SIZE="512m"
+COMPQUAL=0 # compression quali 0=split only 7=highest
+
+LOG="/var/log/syncftp.log"
+TARGETDISK="sdc1"  # auf welche disk die temporären daten
+Q="" # Quellpath
+T="" # Sourcepath
+
+
+SIGNALFINISH="COMPRESSION_FINISHED"
+SIGNALNOSWITCH="donotswitch"
+SIGNALRUNNING="COMPRESSION_RUNNING"
+QUEUEFILE="TRANSFERQUEUE"
+TRANSFERFINISH="TRANSFER_FINISHED"
+TRANSFERRUNNING="TRANSFER_RUNNING"
+
+
+function set_qandt
+{
+Q=$1
+T="/mnt/$TARGETDISK/rtransfer/`basename $Q`"
+T=${T%-*}
+echo "`date` INF compressing $Q to $T"
+}
+
+
+function do_compression
+{
+fpp=$1
+echo "`date` INF Startup compressor 7z with compression quality $COMPQUAL and chunksize $SIZE"
+echo $fpp > "$SIGNAL/$SIGNALNOSWITCH"
+
+tdir=`dirname $T`
+if [ -d $tdir ] ; then
+    echo "`date` WAR $T already exits - deleting directory and content ..."
+    cp "$tdir/$QUEUEFILE" "/tmp/$QUEUEFILE"
+    rm -rf $tdir
+    mkdir $tdir
+    chmod 777 $tdir
+    mv "/tmp/$QUEUEFILE" "$tdir/$QUEUEFILE"
+fi
+
+echo "`date` INF startup 7z - be patient...."
+echo $fpp > "$tdir/$SIGNALRUNNING"
+echo $fpp >> "$tdir/$QUEUEFILE"
+#7z a -t7z -m0=lzma -mx=$COMPQUAL -mfb=64 -md=32m -ms=on -v$SIZE $T $Q
+7z a -mx=$COMPQUAL -v$SIZE $T $Q
+RST=$?
+rm -f "$SIGNAL/$SIGNALNOSWITCH"
+rm -f "$tdir/$SIGNALRUNNING"
+echo $fpp > "$tdir/$SIGNALFINISH"
+echo "`date` done with $RST"
+return $RST
+}
+
+
+##################################################################
+##########  MAIN SCRIPT
+##################################################################
+
+echo ""
+echo "`date` INF $0 startup PID:$$"
+let RST=-1
+
+# we have job via commandline or via jobfile
+
+if [ -z $1 ] ; then
+    for f in `ls -rt $SPOOLDIR/ASYNC* 2>/dev/null`
+    do
+	echo "`date` INF Jobfile found: $f"
+	fpath=`cat $f | cut -f 3 -d " "`
+	set_qandt $fpath
+	do_compression $fpath
+	RST=$?
+	break
+    done
+    if [ -z $fpath ] ; then
+	echo "`date` INF nothing to do, no jobfile, no commandline."
+    fi
+else
+    echo "`date` INF got job via commandline."
+    fpath=$1
+    if [ ! -d $fpath ];then
+	echo "`date` ERR invalid source directory $fpath"
+	exit 1
+    else
+	set_qandt $fpath
+	do_compression $fpath
+	RST=$?
+    fi
+fi
+
+echo "`date` INF $0 PID:$$ exit with $RST"
+exit $RST

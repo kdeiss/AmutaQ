@@ -1,0 +1,55 @@
+#! /bin/bash
+# by k.deiss@it-userdesk.de
+# acces every esxi host and write a testsquence to bufferdisk
+# V 0.0.1 19.7.18
+
+
+
+#don't edit from here
+
+
+source /opt/AmutaQ!/etc/AmutaQ!.conf
+
+# The commandline to the ESXI host
+CMDL="sshpass -p "$VMPASSWORD" ssh -o StrictHostKeyChecking=no $VMUSER@$VMHOST"
+
+function countvm
+{
+let e=$e+1
+echo "host $VMHOST hosting $VMLIST"
+$CMDL "echo -n \"$VMHOST: \" >> /vmfs/volumes/BUFFERDISK_$BACKUPNETWORK_IP/bazaar/sshtest.txt"
+$CMDL "date >> /vmfs/volumes/BUFFERDISK_$BACKUPNETWORK_IP/bazaar/sshtest.txt"
+if [ ! $? -eq 0 ];then
+    echo "Can't access Bufferdisk from Host $VMHOST!!!!!"
+fi
+
+for VMCTRTEMP in $VMLIST
+    do
+        let ctr=$ctr+1
+    done
+}
+
+let e=0
+let i=0
+let ctr=0
+if [ -f /opt/AmutaQ!/etc/AmutaQ!.conf.$i ];then
+    echo "This system is backing up multiple ESXi Hosts - rotation config found."
+    let i=0
+    while [ $i -lt 10 ];do
+	if [ -f /opt/AmutaQ!/etc/AmutaQ!.conf.$i ];then
+	    source /opt/AmutaQ!/etc/AmutaQ!.conf.$i
+	    countvm
+	fi
+	let i=$i+1
+    done
+else
+    countvm
+fi
+
+echo "$ctr VM's to backup"
+echo "$e ESXi hosts"
+
+
+
+
+

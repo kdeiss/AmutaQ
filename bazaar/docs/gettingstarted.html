@@ -1,0 +1,292 @@
+
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>Get started with bazaarvcb &mdash; bazaarvcb 0.9.1b documentation</title>
+    
+    <link rel="stylesheet" href="_static/sphinxdoc.css" type="text/css" />
+    <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '',
+        VERSION:     '0.9.1b',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="_static/jquery.js"></script>
+    <script type="text/javascript" src="_static/underscore.js"></script>
+    <script type="text/javascript" src="_static/doctools.js"></script>
+    <link rel="shortcut icon" href="_static/bazaarvcb.ico"/>
+    <link rel="top" title="bazaarvcb 0.9.1b documentation" href="index.html" />
+    <link rel="next" title="FAQ" href="faq.html" />
+    <link rel="prev" title="bazaarvcb’s homepage" href="index.html" /> 
+  </head>
+  <body>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="faq.html" title="FAQ"
+             accesskey="N">next</a> |</li>
+        <li class="right" >
+          <a href="index.html" title="bazaarvcb’s homepage"
+             accesskey="P">previous</a> |</li>
+        <li><a href="index.html">bazaarvcb 0.9.1b documentation</a> &raquo;</li> 
+      </ul>
+    </div>
+      <div class="sphinxsidebar">
+        <div class="sphinxsidebarwrapper">
+
+            <p class="logo"><a href="index.html">
+              <img class="logo" src="_static/bazaarvcb-200.png" alt="Logo"/>
+            </a></p>
+<h3>Author's home</h3>
+<div class="tuxhome">
+  <a href="http://blog.magiksys.net">
+    <img class="mytux" src="_static/tux-transparent-56x64b.png" alt="Tux Logo"/>
+    <span class="homesite">blog.magiksys.net</span>
+  </a>
+</div>
+  <h3><a href="index.html">Table Of Contents</a></h3>
+  <ul>
+<li><a class="reference internal" href="#">Get started with bazaarvcb</a><ul>
+<li><a class="reference internal" href="#overview">Overview</a></li>
+<li><a class="reference internal" href="#list-of-vms">List of VMs</a></li>
+<li><a class="reference internal" href="#get-more-info-about-one-vm">Get more info about one VM</a></li>
+<li><a class="reference internal" href="#backup-your-vm-to-another-datastore">Backup your VM to another datastore</a></li>
+<li><a class="reference internal" href="#backup-your-vm-to-a-local-directory-download">Backup your VM to a local directory (download)</a></li>
+<li><a class="reference internal" href="#restore-a-backup">Restore a backup</a></li>
+</ul>
+</li>
+</ul>
+
+  <h4>Previous topic</h4>
+  <p class="topless"><a href="index.html"
+                        title="previous chapter">bazaarvcb&#8217;s homepage</a></p>
+  <h4>Next topic</h4>
+  <p class="topless"><a href="faq.html"
+                        title="next chapter">FAQ</a></p>
+<div id="searchbox" style="display: none">
+  <h3>Quick search</h3>
+    <form class="search" action="search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body">
+            
+  <div class="section" id="get-started-with-bazaarvcb">
+<h1>Get started with bazaarvcb<a class="headerlink" href="#get-started-with-bazaarvcb" title="Permalink to this headline">¶</a></h1>
+<div class="section" id="overview">
+<h2>Overview<a class="headerlink" href="#overview" title="Permalink to this headline">¶</a></h2>
+<p>The program include multiple features to help the user before and after the backup.
+This tutorial will show each of them.
+The order of some arguments and options in the command line are important.
+The first parameter after the name of the program must be a command or the option -h.
+Use option -h to list these commands:</p>
+<div class="highlight-python"><pre>$ bazaarvcb -h
+usage: bazaarvcb [-h]  ...
+
+optional arguments:
+  -h, --help   show this help message and exit
+
+valid commands:
+    checkhash  check .hsh files integrity in one directory
+    listvm     list registered VMs on the ESXi host
+    queryvm    display VMs informations
+    listbackup
+               search for backups in local and remote directories
+    querybackup
+               display report file of one particular
+    backup     backup a VM
+    restore    restore a backup</pre>
+</div>
+</div>
+<div class="section" id="list-of-vms">
+<h2>List of VMs<a class="headerlink" href="#list-of-vms" title="Permalink to this headline">¶</a></h2>
+<p>First, do a listing of existing VMs. This part is important because
+this provides the right name of the VMs. Some characters in the name
+like slash &#8216;/&#8217; are encoded and*bazaarvcb*uses the raw name.</p>
+<div class="highlight-python"><pre>$ bazaarvcb listvm -H vmware -u root -p pass
+STATE SNAP#  NAME                     .VMX PATH
+on      1  MISC.ttylinux            [SATA2000-3] MISC/ttylinux/ttylinux.vmx
+off     0  MISC.ttylinux1G          [SATA2000-3] MISC/ttylinux1G/ttylinux.vmx
+on      0  MISC.ttylinux2G          [SATA2000-3] MISC/ttylinux2G/ttylinux.vmx</pre>
+</div>
+<p>The first VM is powered ON and has a snapshot. Look at the <em>datastore</em> paths
+at the end of the line. The format is important, this is how*bazaarvcb*make
+the difference between a datasore on the ESXi and a local path.</p>
+</div>
+<div class="section" id="get-more-info-about-one-vm">
+<h2>Get more info about one VM<a class="headerlink" href="#get-more-info-about-one-vm" title="Permalink to this headline">¶</a></h2>
+<p>Query the selected VM:</p>
+<div class="highlight-python"><pre>$ bazaarvcb queryvm -H vmware -u root -p pass MISC.ttylinux2G
+======= MISC.ttylinux2G ======
+status  "POWERED ON"
+------- disks -------
+Hard disk 1
+        capacity        64Mo
+        size            64Mo
+        descripor       "[SATA2000-3] MISC/ttylinux2G/ttylinux_1.vmdk"
+        extent          "[SATA2000-3] MISC/ttylinux2G/ttylinux_1-flat.vmdk"
+        mode            "persistent"
+        type            "VirtualDiskFlatVer2BackingInfo"
+        thinprovisioned "False"
+Hard disk 2
+        capacity        2048Mo
+        size            2048Mo
+        descripor       "[SATA2000-3] MISC/ttylinux2G/ttylinux.vmdk"
+        extent          "[SATA2000-3] MISC/ttylinux2G/ttylinux-flat.vmdk"
+        mode            "persistent"
+        type            "VirtualDiskFlatVer2BackingInfo"
+        thinprovisioned "False"
+----- snapshots -----</pre>
+</div>
+<p>The VM has Two disks of 64Mo and 2Go, is powered on and has no snapshot.</p>
+</div>
+<div class="section" id="backup-your-vm-to-another-datastore">
+<h2>Backup your VM to another datastore<a class="headerlink" href="#backup-your-vm-to-another-datastore" title="Permalink to this headline">¶</a></h2>
+<p>We will simply backup the VM to another datastore of the same ESXi hosts.</p>
+<div class="highlight-python"><pre>$ bazaarvcb backup -H vmware -u root -p pass --roll-out 3 MISC.ttylinux2G "[SATA750-0] /backup"</pre>
+</div>
+<p>The target directory is a datastore path. this is equal to <em>/vmfs/volume/SATA750-0/backup</em>.
+Use this notation to refer to a datastore, this is how backauvcb make the difference between a
+copy to another datastore and a download on the localhost.</p>
+<p><em>&#8211;roll-out 3 * is used to limit the number of backup, old backups are
+removed, at the end only 3 backups are kept on the target. You can backup
+all you VMs into the same directory, *roll-out</em> make the difference between
+all the backup using the <em>UUID</em> stored in the backup report file <em>bazaarvcb.rep</em></p>
+<p>Now we will list all backup of VM <em>MISC.ttylinux2verify</em> in the datastore <em>[SATA750-0] /backup</em> :</p>
+<div class="highlight-python"><pre>$ bazaarvcb listbackup -H vmware -u root -p pass MISC.ttylinux2G "[SATA750-0] /backup"
+MISC.ttylinux2G 564ddca0-67ea-ca03-da5e-24962d27213e OK 2013-04-22T00:34:26 [SATA750-0] backup/MISC.ttylinux2G-20130422003426</pre>
+</div>
+<p>One backup is found :</p>
+<ul class="simple">
+<li><em>MISC.ttylinux2G</em>: the name of the VM</li>
+<li><em>564ddca0-67ea-ca03-da5e-24962d27213e</em>: the UUID of the VM; VMware allows multiple VM to have the same name.</li>
+<li><em>OK</em>: the backup was successful</li>
+<li><em>2013-04-22T00:34:26</em>: when the backup started</li>
+<li><em>[SATA750-0/backup] MISC.ttylinux2G-20130422003426</em>: where it is stored</li>
+</ul>
+<p><em>listbackup</em> accepts * to list all backups of all VMs and also accept multiple target directories, these
+directories can be on any datastore of the ESXi host or on the local machine. <em>listbackup</em>
+does a recursive search in nested directories.</p>
+<p>I rerun the command 3 more time to see what is happening and do a last <em>listbackup</em> :</p>
+<div class="highlight-python"><pre>$ bazaarvcb backup -H vmware -u root -p pass --roll-out 3 MISC.ttylinux2G "[SATA750-0] /backup"
+$ bazaarvcb backup -H vmware -u root -p pass --roll-out 3 MISC.ttylinux2G "[SATA750-0] /backup"
+$ bazaarvcb backup -H vmware -u root -p pass --roll-out 3 MISC.ttylinux2G "[SATA750-0] /backup"
+$ bazaarvcb listbackup -H vmware -u root -p pass MISC.ttylinux2G "[SATA750-0] /backup"
+MISC.ttylinux2G 564ddca0-67ea-ca03-da5e-24962d27213e OK 2013-04-22T01:23:25 [SATA750-0] backup/MISC.ttylinux2G-20130422012325
+MISC.ttylinux2G 564ddca0-67ea-ca03-da5e-24962d27213e OK 2013-04-22T01:30:51 [SATA750-0] backup/MISC.ttylinux2G-20130422013051
+MISC.ttylinux2G 564ddca0-67ea-ca03-da5e-24962d27213e OK 2013-04-22T01:52:07 [SATA750-0] backup/MISC.ttylinux2G-20130422015207</pre>
+</div>
+<p>The first backup is missing, only the 3 last backup are in the list.
+<em>backupvcb</em> use VMware&#8217;s <em>vmkfstools</em> to copy each disks of the vm to the datastore.</p>
+</div>
+<div class="section" id="backup-your-vm-to-a-local-directory-download">
+<h2>Backup your VM to a local directory (download)<a class="headerlink" href="#backup-your-vm-to-a-local-directory-download" title="Permalink to this headline">¶</a></h2>
+<p>To download you VMs to a local directory, you have to specify a local directory
+instead of a datastore.</p>
+<div class="highlight-python"><pre>$ bazaarvcb backup -H vmware -u root -p pass --roll-out 3 MISC.ttylinux2G /s1/backup/bazaarvcb</pre>
+</div>
+<p><em>bazzarvcb</em> will upload an agent on the ESXi and start multiple instance of it, then it
+will open port 31031 (default for &#8211;listen option) and wait for connection of the agents.
+If the agent cannot connect back to the backup host, they will fall back to slower SSH tunnels.
+Port 31031 has been choose because is is open on ESXi by default, no need to open it.
+Be sure to open it on your backup hosts too. If you are backing up through Internet or
+a router doing NAT be sure to setup a port forwarding to your backup host and use option <em>&#8211;callback</em>
+option to setup the external IP address of your Internet router.</p>
+<p>If you want to backup through a slow network like Internet, you can use the option <em>&#8211;hashing</em>
+that will calculate hashes of blocks before to sent them back to the host. If the hashes matches
+blocks in the last backup, then these block will be taken from there and not downloaded from
+the ESXi server. <em>bazzarvcb</em> recursively search in the target directory for the last valid backup of the VM
+an use data from it. You can tell <em>bazaarvcb</em> to search into another directory using the <em>&#8211;base</em> option.</p>
+<p>If you are on a fast network, <em>&#8211;hashing</em> could slow down the backup, or consume to much CPU.
+You can reduce the number of agent using the <em>&#8211;agent</em> option.</p>
+<p>Here too you can use command <em>listbackup</em> to list backup from the two previous locations.</p>
+<div class="highlight-python"><pre>$ bazaarvcb listbackup -H vmware -u root -p pass MISC.ttylinux2G "[SATA750-0] /backup" /s1/backup/bazaarvcb
+MISC.ttylinux2G 564ddca0-67ea-ca03-da5e-24962d27213e OK 2013-04-22T01:56:44 [SATA750-0] backup/MISC.ttylinux2G-20130422015644
+MISC.ttylinux2G 564ddca0-67ea-ca03-da5e-24962d27213e OK 2013-04-22T02:03:59 /s1/backup/bazaarvcb/MISC.ttylinux2G-20130422020359
+MISC.ttylinux2G 564ddca0-67ea-ca03-da5e-24962d27213e OK 2013-04-22T02:40:48 /s1/backup/bazaarvcb/MISC.ttylinux2G-20130422024048
+MISC.ttylinux2G 564ddca0-67ea-ca03-da5e-24962d27213e OK 2013-04-22T03:06:39 [SATA750-0] backup/MISC.ttylinux2G-20130422030639
+MISC.ttylinux2G 564ddca0-67ea-ca03-da5e-24962d27213e OK 2013-04-22T03:13:13 [SATA750-0] backup/MISC.ttylinux2G-20130422031313</pre>
+</div>
+</div>
+<div class="section" id="restore-a-backup">
+<h2>Restore a backup<a class="headerlink" href="#restore-a-backup" title="Permalink to this headline">¶</a></h2>
+<p>The simplest way to restore a backup, is to copy the directory hoding the VM you wan to restore to
+one datastore of the ESXi host and rejister the .vmx file. To help you <em>bazaarvcv</em> provide the <em>restore</em>
+command. You can restore VMs from a datastore or a local directory.
+For example her eI&#8217;m restoring a VM from one of the backup listed previously.</p>
+<div class="highlight-python"><pre>$ bazaarvcb restore -H vmware -u root -p vishnou --register Restored.ttylinux2Ga /s1/backup/bazaarvcb/MISC.ttylinux2G-20130422024048 "[SATA750-0] /"</pre>
+</div>
+<p>The VM is restored under the name <em>Restored.ttylinux2G</em> and registered.</p>
+</div>
+</div>
+
+
+          </div>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="genindex.html" title="General Index"
+             >index</a></li>
+        <li class="right" >
+          <a href="faq.html" title="FAQ"
+             >next</a> |</li>
+        <li class="right" >
+          <a href="index.html" title="bazaarvcb’s homepage"
+             >previous</a> |</li>
+        <li><a href="index.html">bazaarvcb 0.9.1b documentation</a> &raquo;</li> 
+      </ul>
+    </div>
+
+    <div class="footer">
+        &copy; Copyright 2013, Alain Spineux.
+      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 1.1.3.
+    </div>
+<script type="text/javascript">
+
+  var _gaq = _gaq || [];
+  _gaq.push(['_setAccount', 'UA-21029552-4']);
+  _gaq.push(['_trackPageview']);
+
+  (function() {
+    var ga = document.createElement('script'); ga.type = 'text/javascript'; ga.async = true;
+    ga.src = ('https:' == document.location.protocol ? 'https://ssl' : 'http://www') + '.google-analytics.com/ga.js';
+    var s = document.getElementsByTagName('script')[0]; s.parentNode.insertBefore(ga, s);
+  })();
+
+</script>
+
+  </body>
+</html>

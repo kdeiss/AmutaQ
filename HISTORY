@@ -1,0 +1,145 @@
+VERSION="AmutaQ! 0.4.22.28.4.20"
+-    possibility to disable control network
+-    lamw controlscript
+-    lamw backup bug fix
+
+
+VERSION="AmutaQ! 0.4.21.4.10.19"
+-    write backups to nfs shares
+-    write changes to multiple configs (tools/x-formatdisk)
+
+
+VERSION="AmutaQ! 0.4.20.12.9.19"
+-    integration encryption by Andreas Halbach
+
+
+VERSION="AmutaQ! 0.4.19.19.7.18"
+-    alternative backup method via lamw script
+
+
+VERSION="AmutaQ! 0.4.18.17.11.17"
+-    pause async & crc-check while running cloner2secondserver via await
+
+
+VERSION="AmutaQ! 0.4.17.26.7.17"
+-    new version of usv modul
+-    logrotate
+
+
+VERSION="AmutaQ! 0.4.16.12.5.17"
+-    enable ddumbfs over NFS (remote backups!)
+
+
+VERSION="AmutaQ! 0.4.14.31.3.17"
+-    force ddumbfs check on disk change
+-    extended reporting on disk switch
+-    bugfix check_bufferdisk
+-    patch to cpu measurement
+-    /tmp cleanup
+-    autoupdate
+-    mail.lib startup-msg removed
+-    handling of no space on bufferdisk (send mail)
+-    mrelease / bugfix autoupdate
+
+
+VERSION="AmutaQ! 0.4.1.23.3.17"
+-    general merge / integration clone technology
+-    /vmware/xvmdk2host experimental restore with bazaar
+-    added /vmware/guest_control
+-    added /ddumbfs/mount_second_disk_with_check
+-    added /ghetto - still without productive usage
+-    added check for defective files on ddumbfs
+-    added checkup of bufferdisk for unprocessed files
+
+
+VERSION="AmutaQ! 0.3.10.3.3.17"
+-    fix4reboot machine on quiesce fail
+
+
+VERSION="AmutaQ! 0.3.8.28.2.17"
+-    supress crc check via semphore
+-    startup/stop script if quiescing fails
+
+
+VERSION="AmutaQ! 0.3.7.27.2.17"
+-    Bugfix
+
+
+VERSION="AmutaQ! 0.2.21.24.12.15-X"
+
+-    Erzeugung diskspezifischer Maximalbefuellung, somit ist die Nutzung unterschiedlicher Plattengroessen moeglich
+     Die Platten werden berechnet beim switchen, ab 85% Fuellgrad wird versucht die Belegung automatisiert zu steuern
+
+-    Bufferdisk enthält immer einen Satz gueltiger Backups.
+     DISASTERSCENARIO: Faellt ein datastore aus, so koennen die ausgefallenen Maschinen direkt vom NFS Store ausgefuehrt werden.
+
+-    Das grafische Ruechsicherungsscript erlaubt nun die Auswahl von Maschine und Datastore
+
+-    Via Webmin werden Zusammenfassungen der Aktivitäten angezeigt
+
+-    LazyBone Flag, wenn 1 dann wird lediglich pro Lauf 1 Backup je VM gezogen, danach geht das System in den wait mode
+
+
+
+/bazaar
+vm_make_report
+vm_make_report_countbackups
+
+/backup
+backup2ddumb
+
+/backup/signal
+stop loescht nicht mehr die queue!
+stop loescht - falls vorhanden die waitfiles
+
+/etc/AmutaQ!.conf
+KEEPVERSIONS in den editierbaren Bereich gezogen
+
+NEU: FILLMAX=85
+NEU: HOUSEKEEPERAGE=+20
+Diese Variablen wurden zuvor in den Unterprogrammen gesetzt
+
+# maximal fill on ddumbs - if the ddumbs system is filled higher the amount of backups will be auto adjusted
+let FILLMAX=85
+
+# hosuekeeping is called each diskswitch
+# all backuops elder than this value which are not crc checked will be deleted
+# note the + sign!
+HOUSEKEEPERAGE=+20
+
+# this values are for the tool x-formatdisk - this value describes the ratio between physical and virtual (ddumbfs) space on the disk.
+# the ddumbfs partition ALWAYS has to be smaller than the physical disk, because it needs space for its metadata
+# A value of 80 (80%) has been found a good value which fits for most scenarios
+FILESYSTEM="ext4"
+let DDUMBSIZE=80
+
+/backup
+asynccopy gekapselt in aux file (wg logging)
+
+/webmin
+status.sh teilweise aufgesplittet in libraray-funktion
+
+/lib
+discident.lib (translation device to human readable)
+
+/backup
+backup2ddumb
+MAXJOBS - ermittlung angepasst an multiple ESXi Umgebung
+asyncopy und backup2ddumb in aux scripte (wrapper) augelagert (um unvorhergesehene Fehler abzufangen)
+
+/webmin
+Report-1 und 2 überarbeitet
+Report 1 gibt nun einen Überblick ueber das laufende System
+
+/bazaar
+single machine komplett überarbeitet - prüft nun ob auf bufferdisk genug Platz ist.
+
+/tools
+crccheckS aynchroner crc check der in asynccopy direkt nach Erstellung der Kopie aufgerufen wird
+
+/tools
+xvmdk2host fuer Ruecksicherung erlaubt Auswahl von ESXi Machine und datastore
+
+/lib
+mail wiederholt im Falle von Fehlern
+ 

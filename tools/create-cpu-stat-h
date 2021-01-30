@@ -1,0 +1,58 @@
+#! /bin/bash
+# create hurly report for cpu stat
+# by k.deiss@it-userdesk.de
+# V 0.0.1.2.1.16
+
+statfn="/tmp/cpustat.txt"
+tmp="/tmp/cpu-stat-h-$$.tmp"
+logfn="/var/log/cpu-stat-log"
+let tctr=8
+
+let lctr=0
+let user=0
+let sys=0
+let nice=0
+let idle=0
+let wait=0
+
+#set -x
+
+
+#die letzte Stunde auslesen
+if [ -f $statfn ] ;then
+    tail -n 32 $statfn > $tmp
+else
+    exit 1
+fi
+
+while read line 
+do
+    #die ersten zwei zeilen skippen
+    if [ $lctr -gt 1 ] ;then
+	#echo $line
+	let user=$user+`echo $line | awk '{printf $2}'`
+	let sys=$sys+`echo $line | awk '{printf $3}'`
+	let nice=$nice+`echo $line | awk '{printf $4}'`
+	let idle=$idle+`echo $line | awk '{printf $5}'`
+	let wait=$wait+`echo $line | awk '{printf $6}'`
+    fi
+    let lctr=$lctr+1
+done < $tmp
+
+let lctr=$lctr-2
+
+let user=$user/$lctr
+let sys=$sys/$lctr
+let nice=$nice/$lctr
+let idle=$idle/$lctr
+let wait=$wait/$lctr
+let total=100-$idle
+
+if [ -f $logfn ] ; then
+    echo "$total $user $sys $nice $idle $wait `date`" >> $logfn
+else
+    echo "cpu-total user sys nice idle wait date" > $logfn
+    echo "$total $user $sys $nice $idle $wait `date`" >> $logfn
+fi
+
+rm $tmp

@@ -1,0 +1,141 @@
+#! /bin/bash
+# by k.deiss@it-userdesk.de
+# wrapper for call to backup2ddumb / this will log unexpected errors in the main script!
+# V 0.0.1.6.1.16 initial release
+# V 0.0.2.10.1.16 init the machine specific ctr paranoiamode files (in /tmp) with a value
+# V 0.0.3.11.1.16 clean spoolfile and bufferdisk in case of inconsistence after reboot
+# V 0.0.4.27.7.16 switching to conf.0 only in case of startup
+# V 0.0.5.17.9.19 patching central config files if needed
+# V 0.0.6.31.12.20 kd/ah bugfix detecting process already running
+
+LV="0.0.6.31.12.20"
+
+
+
+
+source /opt/AmutaQ!/etc/AmutaQ!.conf
+LOG=$RSYNC_LOG
+
+##############script detection#########################
+LOCKFILE=/tmp/$(basename $0).lck
+#[ -f $LOCKFILE ] && { echo "`date` INF $0 already running" >> $LOG; exit 1; }
+if [ -f $LOCKFILE ] ; then
+    SPID=`cat $LOCKFILE`
+#    ps -e | grep $SPID >> /dev/null
+    ps -o cmd -p $SPID |grep `basename $0` >> /dev/null
+    if [ $? -eq 0 ] ; then
+	exit 1
+    else
+	echo "" >> $LOG
+	echo "`date` WAR $0 has lockfile but is not running!" >> $LOG
+    fi
+fi
+
+del_lock()
+{
+    echo "`date` $0 WARNING external signal caught, exiting" >> $LOG
+    rm -f $LOCKFILE
+}
+
+trap "del_lock ; exit 1" 2 9 15
+echo $$ > $LOCKFILE
+##############script detection#########################
+
+
+# wenn eines der folgenden signale existieren kein start
+
+if [ -f $SIGNAL/stop ] ; then
+    echo "`date` INF $0 stoped: stop is pending." | tee -a $LOG
+    rm -f $LOCKFILE
+    exit 0
+fi
+
+
+# init the machine specific ctr files (in /tmp) with a value
+function createasync-ctr
+{
+    if [ $PARANOIAMODE -gt -1 ] ; then
+	if [ -f /opt/AmutaQ!/etc/AmutaQ!.conf.0 ];then 
+	    let f=0
+	    while [ $f -lt 100 ];do
+		if [ -f /opt/AmutaQ!/etc/AmutaQ!.conf.$f ];then
+		    source /opt/AmutaQ!/etc/AmutaQ!.conf.$f
+		    createasync-ctr-aux
+		else
+		    break
+		fi
+		let f=$f+1
+	    done
+	    source /opt/AmutaQ!/etc/AmutaQ!.conf
+	else
+	    createasync-ctr-aux
+	fi
+    fi
+}
+
+function createasync-ctr-aux
+{
+let ctr=0
+for VMCTRTMP1 in $VMLIST
+    do
+        let ctr=$ctr+1
+	echo $ctr > "/tmp/$VMCTRTMP1"
+	if [ $ctr -gt $PARANOIAMODE ] ; then
+	    let ctr=0
+	fi
+    done
+}
+
+# delete all jobs in spool
+# set all jobs in bufferdisk to status done
+function reset_old_jobs()
+{
+for f in `ls -rt $SPOOLDIR`
+do
+    echo "`date` INF Deleting old Jobfile: $f" >> $LOG
+    rm -f $SPOOLDIR/$f
+done
+
+for directory in `find $VMBACKUPTARGET -type d` 
+do
+    if [ ! -f "$directory/ASYNC.OK" ] ;then
+	echo "`date` INF Clearing unprocessed directory $directory" >> $LOG
+	touch "$directory/ASYNC.OK"
+    fi
+done
+}
+
+
+#########################################################
+#                       MAIN                            #
+#########################################################
+
+# on system (re)start we have to to clean some things
+
+if [ -f /opt/AmutaQ!/etc/AmutaQ!.conf.0 ] ;then
+    # if we have rotation config we switch to config 0
+    cp /opt/AmutaQ!/etc/AmutaQ!.conf.0 /opt/AmutaQ!/etc/AmutaQ!.conf
+fi
+
+echo "">>"$LOG"
+echo "`date` INF $VERSION startup." >>"$LOG"
+echo "`date` INF $0 (Backup2ddump stub) version $LV">>"$LOG"
+
+# kd 18.9.19 patching config if needed
+source /opt/AmutaQ!/tools/chk-vars
+addvar "BACKUPTOOL" "BAZA" "with this variable one can choose the main backup tool. Currently this can be BAZA (bazaar) or LAMW (by W.Lam). Note BAZA is only compatible to ESXi 5.5!"
+addvar "CPUPOOL4DDUMB" "0" "How many cpu to use with ddumbfs"
+addvar "CLOUDDISK" "NONE" "If there should be a further backup to a nonlocal disks after the regular backup specify here the diskname"
+addvar "SPOOLD4CLOUD" "/opt/AmutaQ!/backup/spool4cloud" "The local spool for jobs which will be backuped to the cloud disk"
+
+
+createasync-ctr
+reset_old_jobs
+
+$0-aux 2>&1 | while read line
+do
+    echo "`date` WAR UNEXPECTED: $line" | tee -a $LOG
+done
+
+
+rm -f $LOCKFILE

@@ -1,0 +1,13 @@
+#! /bin/bash
+# by k.deiss@it-userdesk.de
+# kill all sync procs the hard way
+
+source /opt/AmutaQ!/etc/AmutaQ!.conf
+LOG="/var/log/syncftp.log"
+
+echo "" >> $LOG
+echo "`date` INF $0 startup" >> $LOG
+killall -9 syncftp-aux 2>&1 >> $LOG
+killall -9 rsync 2>&1 >> $LOG
+killall -9 lftp 2>&1 >> $LOG
+echo "`date` INF $0 stop" >> $LOG

@@ -1,0 +1,17 @@
+#! /bin/bash
+# V 0.0.1.29.9.14 
+# unmount vmware disk from commandline
+# by k.deiss@it-userdesk.de
+
+
+VMLIB=/usr/lib/vmware-vix-disklib/lib64
+
+#umount all vmware disks
+sudo LD_LIBRARY_PATH=$VMLIB vmware-mount -x
+sleep 1
+sudo LD_LIBRARY_PATH=$VMLIB vmware-mount -x
+if [ $? -eq 0 ] ; then
+    echo "umount ok"
+else
+    echo "umount FAIL"
+fi

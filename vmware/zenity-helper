@@ -1,0 +1,98 @@
+#! /bin/bash
+# helper script to display gtk dialogs during restore  
+# by k.deiss@it-userdesk.de
+# V 0.0.1.14.10.14 initial release
+
+source /opt/AmutaQ!/etc/AmutaQ!.conf
+
+
+#don't edit
+
+CMDL="sshpass -p "$VMPASSWORD" ssh -o StrictHostKeyChecking=no $VMUSER@$VMHOST"
+LOG="/var/log/vm_restore.log"
+LLOG="/var/log/vm_restoretemp.log"
+TMPSIG="/tmp/zenity-helper.sig"  #communication 
+CMDL="sshpass -p "$VMPASSWORD" ssh -o StrictHostKeyChecking=no $VMUSER@$VMHOST"
+
+#fname comes via cmdline
+fn=$1
+
+echo "`date` $fn" >> $LLOG
+
+##########################################################
+#                    FUNCTIONS
+##########################################################
+
+function findvmkfstools()
+{
+echo "SEARCH RUNNING VMKFSTOOLS">>$LLOG
+$CMDL ps | grep vmkfstools 
+}
+
+
+#kills vmkfstools on esxi server
+function kill_vmkfstools()
+{
+echo "TRY TO KILL VMKFSTOOLS" >>$LLOG
+let PSX=0
+let PSX=`findvmkfstools | cut -f 1 -d " "`
+if [ ! 0 -eq $PSX ] ; then
+    $CMDL kill -9 $PSX >>$LLOG
+else
+    echo "FATAL VMKFSTOOLS NOT RUNNING!" >>$LLOG
+fi 
+}
+
+function taily()
+{
+let TAILX=1
+let lctr=0
+
+while [ $TAILX -eq 1 ]
+do
+    sleep 0.5
+    let TAILX=`cat ${TMPSIG}`
+    let lctr=$lctr+1
+    if [ $lctr -gt 20 ] ; then
+	let lctr=0
+        #erst das erzeugt eine neue zeile fuer tail
+        echo " `date`: $tmp" >>$LOG 
+        line=`tail -n 1 $LOG`
+	echo "RESULT OF TAIL: $line $TAILX" >> $LLOG
+        tmp=`echo $line | cut -f 2 -d " " | cut -f 1 -d "%"`
+	tmp2=`echo $line | grep "%"`
+        #echo "tmp: $tmp" >>$LLOG 
+	#echo "tmp2: $tmp2" >>$LLOG 
+	if [ ! -z "$tmp" ] && [ ! -z "$tmp2" ]; then
+	    let ctr=$tmp
+	    echo "# Restoring $fn (${ctr}%)"
+	    echo $ctr
+	fi
+    fi
+
+    echo ""
+    if [ ! $? -eq 0 ] ; then
+	#broken pipe o.ä.
+	echo "ERROR IN ANAOUTPUT - EXIT!" >>$LLOG
+	echo 0 >$TMPSIG
+	kill_vmkfstools
+	return 1
+    fi
+done
+}
+
+
+##########################################################
+#                    MAIN
+##########################################################
+
+
+
+echo 1 > $TMPSIG
+#set -x
+taily | zenity --width=600 --height=200 --progress --auto-close --title="Restore VM" --text="restoring $fn" --percentage=0
+if [ $? -eq 1 ] ; then
+    echo "USER ABORT" >>$LLOG
+    kill_vmkfstools
+fi
+echo "END $0">>$LLOG

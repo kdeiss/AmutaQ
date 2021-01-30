@@ -1,0 +1,152 @@
+#! /bin/bash
+# by k.deiss@it-userdesk.de
+# umount the ddumbfs cleanly
+# V 0.0.1 1.5.14
+# V 0.0.2.4.10.14 force umount killing pids found by lsof
+# V 0.0.3.12.9.19 luks beta
+# V 0.0.4.4.10.19 copy idx file preserve only timestamp (problems on NFS)
+# V 0.0.5.10.12.20 only reload NFS-Server, not hard restart
+
+
+source /opt/AmutaQ!/etc/AmutaQ!.conf
+
+MAXTRIES=20 #how long do we wait for umount
+INDEXDIR="/opt/AmutaQ!/indexfiles"
+LSOFTMP="/tmp/lsof.tmp"
+
+LOG="/var/log/mount_fs.log"
+echo "" | tee -a $LOG
+echo "`date` INF start umount ddumbfs." | tee -a $LOG
+
+
+
+#echo searching $DDUMBVOL
+mount | grep $DDUMBVOL >/dev/null
+RST=$? #if 1 then not mounted
+if [ ! $RST -eq 0 ] ; then
+    echo "`date` INF DDUMBFS $DDUMBVOL not mounted - exiting !" | tee -a $LOG
+    exit 0
+fi
+
+echo "`date` INF DDUMBFS $DDUMBVOL is mounted - try to umount."| tee -a $LOG
+
+#move crc checked files from tmp folder to final destination
+for FN in `ls ${ASYNCTARGET}.tmp`
+do
+    echo "`date` INF moving crc checked file ${ASYNCTARGET}.tmp/$FN ${ASYNCTARGET}/$FN" | tee -a $LOG
+    mv ${ASYNCTARGET}.tmp/$FN ${ASYNCTARGET}/$FN
+done
+
+
+#find mounted volume - we need that to save the indexfile !
+TMP0=`mount | grep $DDUMBVOL`
+#echo "0 $TMP0"
+TMP1=`echo "$TMP0" |  cut -f 1 -d " "`
+#echo "1 $TMP1"
+TMP2=`dirname $TMP1`
+TMP2=`dirname $TMP2`
+TARGETHD=`basename $TMP2`
+
+
+#now the umount
+service smbd stop
+#/etc/init.d/nfs-kernel-server stop
+/usr/sbin/exportfs -au
+
+let RST=100
+while [ $RST -gt 0 ] 
+do
+    umount $DDUMBVOL 2>&1 | tee -a $LOG
+    mount | grep $DDUMBVOL >/dev/null
+    TMP=$? #if 1 then not mounted
+
+    if [ $TMP -eq 0 ] ; then
+	RST=1
+    else
+	RST=0
+    fi
+
+    let EXITCODE=$RST
+    echo "`date` INF umount RST $RST" | tee -a $LOG
+    if [ ! $RST -eq 0 ] ; then
+	lsof $DDUMBVOL | tee -a $LOG
+	date > $LSOFTMP
+	lsof $DDUMBVOL >> $LSOFTMP
+	#try to kill all open procs
+	let n=0
+	while read line
+	do
+	    let n=$n+1
+	    pidov=`echo $line | cut -f 2 -d " "`
+	    if [ $n -gt 2 ]; then
+		echo kill -9 $pidov | tee -a $LOG
+		kill -9 $pidov | tee -a $LOG
+	    fi
+	done < $LSOFTMP
+    fi
+
+
+    let i=$i+1
+    if [ $i -eq $MAXTRIES ] ; then
+	let RST=0
+    fi
+done
+
+
+#if success on umount save the indexfile
+if [ $EXITCODE -eq 0 ];then
+    if [ -z $TARGETHD ] ; then
+	echo "`date` ERR - cannot find mounted vol - saving of external index not possible " | tee -a $LOG
+    else
+	INDEXFN=`cat /mnt/$TARGETHD/diskinfo | grep "UUID" | cut -f 2 -d " "`
+	if [ -z $INDEXFN ];then
+	    echo "`date` WAR no /mnt/$TARGETHD/diskinfo - no index saving !." | tee -a $LOG
+	else
+	    if [ ! -f "$INDEXDIR/$INDEXFN.idx" ] ; then
+		echo "`date` ERR - $INDEXDIR/$INDEXFN.idx not found !" | tee -a $LOG
+	    else
+	        echo "`date` INF saving $INDEXDIR/$INDEXFN.idx to $TARGETHD" | tee -a $LOG
+		#kd 4.10.19 preserve only timestamp
+		cp --preserve=timestamps "$INDEXDIR/$INDEXFN.idx" "/mnt/$TARGETHD/l0/ddumbfs/"
+		cpRST=$?
+	        echo "`date` INF copy done!" | tee -a $LOG
+		if [ ! $cpRST -eq 0 ] ; then
+		    echo "`date` ERR - $INDEXDIR/$INDEXFN.idx not copied successfully($cpRST)!!!" | tee -a $LOG
+		fi
+	    fi
+	fi
+    fi
+fi
+
+#last action unmount the pyhs. volume
+umount /mnt/$TARGETHD >/dev/null
+#luks: close crypting when crypted
+opencount=$(dmsetup info -c --noheadings -o open "$TARGETHD" 2>/dev/null || true)
+if [ "$opencount" ]; then
+#  echo Open $opencount | tee -a $LOG
+  let wctr=0
+  while [ "$opencount" != "0" ]
+  do
+      let wctr=$wctr+1
+        umount /mnt/$TARGETHD >/dev/null
+        if [ $wctr -gt 10 ] ; then
+              #abort with error
+              echo "`date` ERR can't umount $TARGETHD." | tee -a $LOG
+              break
+      fi
+      sleep 2
+      opencount=$(dmsetup info -c --noheadings -o open "$TARGETHD" 2>/dev/null || true)
+  done
+  #stop crypt
+  cryptdisks_stop $TARGETHD | tee -a $LOG
+fi
+
+#restart all services
+service smbd start
+#/etc/init.d/nfs-kernel-server start
+/usr/sbin/exportfs -r
+
+echo "`date` INF umount done." | tee -a $LOG
+echo "" | tee -a $LOG
+
+exit $EXITCODE

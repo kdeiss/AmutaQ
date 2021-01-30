@@ -1,0 +1,91 @@
+#! /bin/bash
+
+# this script controls the amount of kept backups per VM 
+# if there are more than via KEEPVERSIONS defined it is going to delete them
+# by k.deiss@it-userdesk.de
+# V 0.0.1 8.5.16 initial release
+# V 0.0.2.28.12.19 ah: no more use of find because of bad performance on remote NFS-Volumes
+# V 0.0.3.02.11.20 ah: bugfix if a vm begins with the name of another vm
+
+source /opt/AmutaQ!/etc/AmutaQ!.conf
+let REMOUNTFLAG=0
+
+# mount ddumbfs
+MOUNTER="/opt/AmutaQ!/ddumbfs/mount_fs_only_check"
+
+# umount ddumbfs
+UMOUNTER="/opt/AmutaQ!/ddumbfs/umount_fs"
+
+function controlandcleanddumbfs
+{
+
+if [ -f  $DISCSPECIFICKEEPS ] ;then
+    source  $DISCSPECIFICKEEPS
+fi
+
+for VM in $VMLIST 
+do
+    echo "`date` INF Analysing backups for $VM"
+    LIST=`ls $ASYNCTARGET/$VM-*/ -d -r -1 -b`
+    let CTR=`echo $LIST | wc -w`
+    echo "`date` INF Found $CTR Backups for $VM ($KEEPVERSIONSONFINALTARGET)"
+    if [ $CTR -gt $KEEPVERSIONSONFINALTARGET ] ;then
+	let TODEL=$CTR-$KEEPVERSIONSONFINALTARGET
+	echo "`date` INF Need to delete $TODEL versions!"
+	let NCTR=1
+	for DIRBACKUP in $LIST
+	do
+	    if [ $NCTR -gt $KEEPVERSIONSONFINALTARGET ]; then
+		echo "`date` INF Found old Backup to remove: $DIRBACKUP"
+		rm -rf "$DIRBACKUP"
+		if [ $? -eq 0 ] ; then
+		    echo "`date` INF removed."
+		else
+		    echo "`date` ERR can't remove!!."
+		fi
+	    fi
+	    let NCTR=$NCTR+1
+	done
+	let REMOUNTFLAG=1
+    fi 
+done
+}
+
+
+
+#if this file exists we have to use disk specific settings - global settings will be overwritten
+DISCSPECIFICKEEPS=$ASYNCTARGET/KEEPVERSIONS
+
+if [ -f  $DISCSPECIFICKEEPS ] ;then
+    source  $DISCSPECIFICKEEPS
+    echo "`date` INF Found Disc specific value for Keep Versions - value is: $KEEPVERSIONSONFINALTARGET"
+fi
+
+if [ -f /opt/AmutaQ!/etc/AmutaQ!.conf.0 ];then 
+    let f=0
+    while [ $f -lt 10 ];do
+	if [ -f /opt/AmutaQ!/etc/AmutaQ!.conf.$f ];then
+	    source /opt/AmutaQ!/etc/AmutaQ!.conf.$f
+	    controlandcleanddumbfs
+	fi
+	let f=$f+1
+    done
+    source /opt/AmutaQ!/etc/AmutaQ!.conf
+else
+    controlandcleanddumbfs
+fi
+
+# after deletings we should look to compact the ddumbfs
+if [ $REMOUNTFLAG -eq 1 ] ; then
+    CURDEV=`df | grep "/l0/ddumbfs" | cut -f 3 -d "/"`
+
+#ah: force check of ddumbfs on nfs when high usage(experimental)
+#    FILESYS=`mount | grep "/mnt/$CURDEV" | cut -f 5 -d " "`
+#    if [ "$FILESYS" == "nfs" ];then
+#        touch "/mnt/$CURDEV/l0/ddumbfs/.autofsck" 
+#    fi
+
+    $UMOUNTER
+    $MOUNTER $CURDEV
+fi
+

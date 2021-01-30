@@ -1,0 +1,33 @@
+#! /bin/bash
+# by k.deiss@it-userdesk.de
+# V 0.0.1.16.5.17
+# detect the filesystem which is underlaying ddumbfs
+
+
+source /opt/AmutaQ!/etc/AmutaQ!.conf
+
+FILESYS=""
+
+function findfstype
+{
+FILESYS=`mount | grep $DDUMBVOL | cut -f 1 -d " "`
+if [ ! -z $FILESYS ] ; then
+    FILESYS=`dirname $FILESYS`
+    FILESYS=`dirname $FILESYS`
+    #echo $FILESYS
+    FILESYS=`mount | grep "$FILESYS "`
+    FILESYS=`echo $FILESYS | cut -f 5 -d " "`
+    #echo $FILESYS
+    echo "`date` INF type of underlying filesystem is $FILESYS"
+
+    if [ "$FILESYS" == "nfs" ];then
+	echo "`date` INF because fs is type nfs we disable check of ddumbfs ...."
+	let FORCECHECK=0
+    fi
+else
+    echo "`date` WAR DDUMBFS not mounted!"
+fi
+}
+
+findfstype
+

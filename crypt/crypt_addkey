@@ -1,0 +1,36 @@
+#! /bin/bash
+# add an additional manual Key to crypted USB-Disk
+# V 0.0.1.25.09.20 ah: initial release
+# V 0.0.2.26.11.29 ah: bugfixing
+
+if [ -f /etc/crypttab ]; then  # only try cryptopen if crypt is used
+    if [ -z $1 ]; then
+        echo "No Parameter given. Usage: crypt_addkey diskname (eg. sdc1)"
+        exit 1
+    fi
+    UUID=`cat /etc/crypttab |grep "$1 " | cut -d= -f2 | cut -d" " -f1`
+    if [ ! -b /dev/disk/by-uuid/$UUID ]; then
+	echo "ERROR: $1 is not a block-Device. Give the name of the Device eg. \"sdc1\""
+	exit 1
+    fi
+    if [ -f /mnt/bufferdisk/.crypt/key_$1 ]; then  # use cryptkey-file if available
+	echo "Using Keyfile, wait a second"
+        cryptsetup luksAddKey /dev/disk/by-uuid/$UUID --key-file /mnt/bufferdisk/.crypt/key_$1
+    else # use derived key
+	echo "Using Derived Key, wait a second"
+        cryptsetup luksAddKey /dev/disk/by-uuid/$UUID --key-file <(echo -n `/lib/cryptsetup/scripts/decrypt_derived bufferdisk``hostname`)
+    fi
+    if [ $? -gt 0 ]; then  #try manual key
+        echo "No key found. Please enter manual key:"
+        cryptsetup luksAddKey /dev/disk/by-uuid/$UUID
+    fi
+else
+	echo "ERROR: No crypttab found. Is crypt used??"
+	exit 1
+fi
+
+if [ $? -eq 0 ]; then
+    echo "Adding Key was successful"
+else
+    echo "Something went wrong. Please contact your Administrator"
+fi

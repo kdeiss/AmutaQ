@@ -1,0 +1,135 @@
+#! /bin/bash
+#shows the next mountable vol from devicelist
+# V 0.0.1 3.5.14
+# V 0.0.2.1.6.16   handle changed devicelist during runtime
+# V 0.0.3.10.1.16  fix situation with one disk system only
+# V 0.0.4.3.8.16   handle special devices e.g. volumes which connect just once s week
+# V 0.0.5.11.12.20 handle special devices e.g. volumes which connect just once s month
+
+source /opt/AmutaQ!/etc/AmutaQ!.conf
+
+LOG="/var/log/mount_fs.log"
+
+LASTDEVICE="/tmp/current_backup_vol"
+CURDEVICELIST="/tmp/current_backup_vol_list"
+LASTSEENDEVICELIST="/tmp/current_last_seen_dev_list"
+
+# check for a changed device list (new disk added/removed etc.)
+if [ -f "$LASTSEENDEVICELIST" ] ; then
+    LSTDEVLST=`cat "$LASTSEENDEVICELIST"`
+else
+    LSTDEVLST="$DDDEVICELIST"
+    echo "$DDDEVICELIST" > "$LASTSEENDEVICELIST"
+fi
+
+if [ ! "$LSTDEVLST" = "$DDDEVICELIST" ] ; then
+    echo "`date` INF devicelist changed since last call - removing $CURDEVICELIST" >> $LOG
+    rm -f $CURDEVICELIST
+    echo "$DDDEVICELIST" > "$LASTSEENDEVICELIST"
+fi
+
+
+if [ -f $LASTDEVICE ];then
+    CDEVICE=`cat "$LASTDEVICE"`
+fi
+
+
+if [ -f $CURDEVICELIST ] ; then
+	DDDEVICELISTNEW=`cat "$CURDEVICELIST"`
+    else
+	DDDEVICELISTNEW=$DDDEVICELIST
+	echo $DDDEVICELISTNEW > $CURDEVICELIST
+fi
+
+echo "" >> $LOG
+echo "`date` INF try to find next device" >> $LOG
+echo "`date` INF LASTDEVICE was $CDEVICE" >> $LOG
+echo "`date` INF using device list: $DDDEVICELISTNEW" >> $LOG
+ARST=$CDEVICE
+
+# in first round we just look for special devs (like monthly backups)
+# these are like dayofmonth-1 dayofmonth-31 etc
+RST=""
+for i in  $DDDEVICELISTNEW
+do
+    if [ ! "$CDEVICE" == "$i" ];then
+        dayofmonth=`date '+%-d'`
+        #echo i:$i d:$dayofmonth
+        echo $i | grep "dayofmonth" >/dev/null
+        if [ $? -eq 0 ] ;then
+            if [ " $i" == " dayofmonth-$dayofmonth" ];then
+                echo "`date` INF will switch to special dev $i" >> $LOG
+                RST=$i
+                echo $i > "$LASTDEVICE"
+                break
+            fi
+        fi
+    fi
+done
+
+# in second round we just look for special devs (like weekend backups)
+# these are like dayofweek-0 dayofweek-2 etc
+if [ -z $RST ];then
+  for i in  $DDDEVICELISTNEW
+  do
+    if [ ! "$CDEVICE" == "$i" ];then
+	dayofweek=`date '+%u'`
+	#echo i:$i d:$dayofweek
+	echo $i | grep "dayofweek" >/dev/null
+        if [ $? -eq 0 ] ;then
+	    if [ " $i" == " dayofweek-$dayofweek" ];then
+		echo "`date` INF will switch to special dev $i" >> $LOG
+		RST=$i
+		echo $i > "$LASTDEVICE"
+		break
+	    fi
+	fi
+    fi
+  done
+fi
+
+
+# normal labour day .....
+if [ -z $RST ];then
+  for i in  $DDDEVICELISTNEW
+  do
+    if [ ! "$CDEVICE" == "$i" ];then
+	echo $i | grep "dayofweek\|dayofmonth" >/dev/null
+        if [ ! $? -eq 0 ] ;then
+	    echo "`date` INF will switch to dev $i" >> $LOG
+	    RST=$i
+	    echo $i > "$LASTDEVICE"
+	    break
+	fi
+    fi
+  done
+fi
+
+
+#wir haben nur ein device?
+if [ -z $RST ];then
+    echo "`date` INF seems we just have one device $i" >> $LOG
+    echo $i > "$LASTDEVICE"
+    RST=$i
+fi
+
+#deviceliste neu bauen
+TMP=""
+for i in $DDDEVICELISTNEW
+do
+    if [ "$CDEVICE" == "$i" ];then
+	HIT="$i"
+    else
+	if [ -z "$TMP" ] ;then
+	    TMP="$i"
+	else
+	    TMP="$TMP $i"
+	fi
+    fi
+done
+
+echo "`date` INF saving new devlist to ${CURDEVICELIST}: $TMP $HIT" >> $LOG
+echo "$TMP $HIT" > $CURDEVICELIST
+
+#tail -n 8 $LOG
+echo $RST

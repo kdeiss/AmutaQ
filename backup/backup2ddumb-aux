@@ -1,0 +1,982 @@
+#! /bin/bash
+# backup ghetto/bazaar backups to ddumbfs 
+# by k.deiss@it-userdesk.de
+# V 0.0.3
+# V 0.0.4 1.5.14 switching hdd
+# V 0.0.5 1.5.14 handling of external indexfiles
+# V 0.0.6 1.5.14 async copy to final destinations
+# V 0.0.7 7.5.14 send report on hdd change
+# V 0.0.8 29.9.14 new directory structure
+# V 0.0.9.2.10.14 waitmode before the next backup is written - gives better async performance
+# V 0.0.10.2.10.14 waitmode before the next backup is written - gives better async performance
+# V 0.0.11.6.10.14 waitmode checks whether same job is already in queue / spoolfilename adapted
+# V 0.0.12.8.10.14 collect statistic data
+# V 0.0.12.21.10.14 bugfix linkutildir
+# V 0.0.14.26.10.14 check mounted ddumbfs
+# V 0.0.14.22.12.14 q+d implemetation to backup two ESXi hosts
+# V 0.0.15.20.3.15 hosekeeping - delete non crc backups older 28 days
+# V 0.0.15.31.3.15 housekeeping call 
+# V 0.0.16.1.4.15 call to bazaarvcb changed - machine specific values impemented
+# V 0.0.17.23.12.15 using disk specific settings for the value of KEEPVERSIONSONFINALTARGET - this value is autocalculted during switch disk - see reporting file
+# V 0.0.18.26.12.15 move async copied files before generating the report! waita semaphore implemented, so async copy can run whilst the main backup is waiting with wait semaphore
+# V 0.0.19.29.12.15 MAXJOBS - ermittlung angepasst an multiple ESXi Umgebung / very crazy bug in setvmrights! / rsync mit h aufrufen 
+# V 0.0.20.30.12.15 Bufferdisk checks for available space on bufferdisk BUFFERDISKCHECK (ext scriot)
+# V 0.0.21.1.1.16 CRC check of source is done immediately after copy files TO the bufferdisk
+# V 0.0.22.2.1.16 bugfix for KEEPVERSIONS
+# V 0.0.23.6.1.16 switch to separate function / documentation / bugfix / wrapper
+# V 0.0.24.8.1.16 bugfix
+# V 0.0.25.9.1.16 softswitch signal / in lazybone mode we use this signal to switch disk after finishing asynccopy / improved checking for ddumbfs
+# V 0.0.26.11.1.16 bugfix
+# V 0.0.27.11.1.16 lazybone mode fixed
+# V 0.0.28.10.7.16 call to cacddumbs (controll of diskspace in certain modes)
+# V 0.0.29.12.7.16 Output mail better formating in case of error
+# V 0.0.30.14.7.16 Modified detection CURRENTHD
+# V 0.0.31.24.7.16 linkutility creates hardlinks of backups
+# V 0.0.32.16.3.17 showconfigvals
+# V 0.0.33a.22.3.17 check bufferdisk for unprocessed or killed backups (aka 137 errors) via chk-dir
+# V 0.1.0.25.3.17 force ddumbfs check on disc change (CALL TO MOUNTER)
+# V 0.1.1.26.3.17 extended reporting (diskstatus after switch) cpu-stats
+# V 0.1.2.28.3.17 bugfix: delete reports also in case of error / jobfiles to /tmp
+# V 0.1.3.1.4.17 umount failed - mail msg optimized
+# V 0.1.4.18.5.17 enable remote disk via nfs
+# V 0.1.5.24.8.17 bugfix broken backups (function chk-dir)
+# V 0.1.6.18.9.19 make backup tool selectable (bazaar or lamw)
+# V 0.1.7.22.11.19 skip housekeeper on skipcrc signal
+# V 0.1.8.24.11.19 fill last_backup_vol file after finish backup with last used regular disk
+# V 0.1.9.6.1.20 setting var BAZAAR within the central loop
+# V 0.1.10.9.10.20 ah: remove mksbackup leftovers
+# V 0.1.11.31.12.20 kd/ah bugfix detecting process already running
+# V 0.1.12.02.01.21 ah handle dayofmonth as nonregular disk for last used disk
+
+LV="0.1.12.02.01.21"
+
+# Paranoiamode controls destination of backup
+# >1 In this (paranoid) mode data is written each-n paranoimode to bufferdisk specified by $VMBACKUPTARGET.
+# Then is copied by rsync to fixed mount /mnt/ddumbs (ASYNCTARGET) and CRC32 check is done
+
+# don't edit from here!
+
+
+source /opt/AmutaQ!/etc/AmutaQ!.conf
+source /opt/AmutaQ!/lib/discident.lib
+source /opt/AmutaQ!/lib/common.lib
+
+
+
+#if this file exists we have to use disk specific settings - global settings will be overwritten
+DISCSPECIFICKEEPS=$ASYNCTARGET/KEEPVERSIONS
+
+TARGETHD=""
+CURRENTDH=""
+
+LOG=$RSYNC_LOG
+LOG2="/tmp/$$_bazaar.log"
+TMP="/tmp/$$.tmp"
+
+#settings for bazaar
+S=$VMBACKUPTARGET
+T="/mnt/ddumbfs"
+
+# kd 18.9.19 make backup tool selectable
+#BAZAAR="/opt/AmutaQ!/bazaar/vm_backup_single"
+if [ ! "$BACKUPTOOL" == "LAMW" ];then
+    # this is the default setting: use bazaar for backup
+    BAZAAR="/opt/AmutaQ!/bazaar/vm_backup_single"
+    echo "`date` INF will use bazaar ($BAZAAR) for backup" >> $LOG
+else
+    # only if explicitly set use lamw
+    BAZAAR="/opt/AmutaQ!/lamw/vm_backup_single"
+    echo "`date` INF will use lamw ($BAZAAR) for backup" >> $LOG
+fi
+
+
+# external tool
+# setting for switching disks
+SWITCHER="/opt/AmutaQ!/tools/switch_vol"
+# mount ddumbfs
+# MOUNTER="/opt/AmutaQ!/ddumbfs/mount_fs"
+MOUNTER="/opt/AmutaQ!/ddumbfs/mount_fs_only_check"
+# umount ddumbfs
+UMOUNTER="/opt/AmutaQ!/ddumbfs/umount_fs"
+# nomen est omen
+BACKUPREPORT="/opt/AmutaQ!/bazaar/vm_make_report"
+# after diskchange we finalize the report with this tool
+PATCHBACKUPREPORT="/opt/AmutaQ!/bazaar/vm_patch_report"
+# where to find/send jobs for asynccopies
+SPOOLDIR="/opt/AmutaQ!/backup/spool"
+# me
+HOMEDIR="/opt/AmutaQ!/backup"
+# creates links for our  x-tools (like visual mounter/disk-formatter etc)
+LINKUTILDIR="/opt/AmutaQ!/vmware"
+# controls the amount of hold backups
+HOUSEKEEPER="/opt/AmutaQ!/tools/housekeeper"
+# tool to calculate buserdisks space
+BUFFERDISKCHECK="/opt/AmutaQ!/tools/checkbufferdisk"
+# tool for crc32 calculating in sourcedir
+CRCCHECKERS="/opt/AmutaQ!/tools/crccheckS"
+# tool for controlling (and regulating) the state of ddumbfs 
+SIZECONTROLLER="/opt/AmutaQ!/tools/cacddumbfs"
+
+
+
+# LASTDEVICE (is set by mount_fs)
+LASTDEVICE="/tmp/current_backup_vol"
+BEFOREDEVICE="/tmp/last_backup_vol"
+
+# statistics
+# how long did the program wait for async backups
+let GWAITCTR=0
+let ASYNCBACKUPCTR=0
+let TOTALBACKUPCTR=0
+let TOTALBACKUPWITHERRORCTR=0
+
+# this represents the amount of vms we have to handle. calculated by countvm
+let MAXJOBS=0
+
+# feature added - in lazybone mode (=1) the system will create exactly one backup per day per vm
+let LAZYBONEFLAG=0
+let LAZYBONE=0
+
+#needed for config file rotation
+let ESXICONF=0
+
+
+##############script detection#########################
+
+LOCKFILE=/tmp/$(basename $0).lck
+# [ -f $LOCKFILE ] && { echo "`date` INF $0 already running" >> $LOG; exit 1; }
+
+if [ -f $LOCKFILE ] ; then
+    SPID=`cat $LOCKFILE`
+#    ps -e | grep $SPID >> /dev/null
+    ps -o cmd -p $SPID |grep `basename $0` >> /dev/null
+    if [ $? -eq 0 ] ; then
+	echo "`date` WAR $0 already running - exit!"
+	exit 1
+    else
+	echo "`date` WAR $0 has lockfile but is not running!" >> $LOG
+    fi
+fi
+
+del_lock()
+{
+    echo "`date` $0 WARNING external signal caught, exiting" >> $LOG
+    rm -f $LOCKFILE
+    rm -f $LOG2
+}
+
+trap "del_lock ; exit 1" 2 9 15
+echo $$ > $LOCKFILE
+
+##############script detection end#######################
+
+
+#########################################################
+#                       functions                       #
+#########################################################
+
+# 0.1.4.18.5.17
+# fix 5/17 make MOUNTER selectable 
+# if ddumbfs mounted on nfs no way to check it
+function select-mounter
+{
+if [ -f "$SIGNAL/donotcheck" ];then
+    MOUNTER="/opt/AmutaQ!/ddumbfs/mount_fs"
+else
+    MOUNTER="/opt/AmutaQ!/ddumbfs/mount_fs_only_check"
+fi
+}
+
+
+# check bufferdisk for unprocessed or killed backups (aka 137 errors)
+function chk-dir
+{
+
+p1="`date +"%Y"|bc`"
+let p2=$p1+1
+#bugfix 24.8.17
+p3="`date +"%m"|bc`"
+
+let p4=$p3+1
+
+if [ $p3 -lt 10 ];then
+    p3="0$p3"
+fi
+
+if [ $p4 -eq 12 ];then
+    let p4=1
+fi
+
+if [ $p4 -lt 10 ];then
+    p4="0$p4"
+fi
+
+pattern="\-$p1$p3"
+pattern1="\-$p1$p4" #next month
+pattern2="\-$p2$p4" #next year / next month
+
+# echo $p1 $p2 $p3 $p4
+# echo $pattern $pattern1 $pattern2
+
+for directory in `find $VMBACKUPTARGET -type d`
+do
+    if [ ! -f "$directory/ASYNC.OK" ] ;then
+        echo "$directory" | grep ".new" >> /dev/null
+        if [ $? -eq 0 ] ; then
+            echo "`date` WAR clearing broken backup in directory $directory" >> $LOG
+            touch "$directory/ASYNC.OK"
+	else
+    	    echo "$directory" | grep "${pattern}" >> /dev/null
+    	    if [ $? -eq 0 ] ; then
+        	echo "`date` WAR clearing unprocessed $directory" >> $LOG
+        	touch "$directory/ASYNC.OK"
+	    else
+    		echo "$directory" | grep "${pattern1}" >> /dev/null
+    		if [ $? -eq 0 ] ; then
+        	    echo "`date` WAR clearing unprocessed directory $directory" >> $LOG
+        	    touch "$directory/ASYNC.OK"
+		else
+    		    echo "$directory" | grep "${pattern2}" >> /dev/null
+    		    if [ $? -eq 0 ] ; then
+        		echo "`date` WAR clearing unprocessed directory $directory" >> $LOG
+        		touch "$directory/ASYNC.OK"
+		    else
+        		echo "`date` INF clearing other/hardlinked directory $directory" >> $LOG
+        		touch "$directory/ASYNC.OK"
+		    fi
+		fi
+	    fi
+	fi
+    else
+        echo "`date` INF $directory OK." >> $LOG
+    fi
+done
+}
+
+
+function showconfigvals()
+{
+
+echo "`date` INF ESXi Server: $VMHOST" >> $LOG
+echo "`date` INF Username for ESXi: $VMUSER" >> $LOG
+echo "`date` INF Machines to Backup: $VMLIST" >> $LOG
+echo "`date` INF Backup Disks: $DDDEVICELIST" >> $LOG
+echo "`date` INF CRC-Check each: $PARANOIAMODE" >> $LOG
+echo "`date` INF Keep versions on Bufferdisk: $KEEPVERSIONS" >> $LOG
+echo "`date` INF NFS-SRV IP: $BACKUPNETWORK_IP" >> $LOG
+
+}
+
+
+
+function check_signal()
+{
+    #init the wait ctr
+    let wctr=0
+
+    #check for wait
+    while [ -f $SIGNAL/wait ]
+    do
+
+	if [ $wctr -gt 5 ] ; then 
+	    let wctr=0
+	fi
+
+	if [ $wctr -eq 0 ] ; then 
+	    # lazy bone depends on wait signal, after a wait we set it to 1
+	    # was a bad idea ......
+	    # let LAZYBONE=1
+	    echo "`date` INF $0 wait signal found." >> $LOG 
+	    let wctr=0
+	fi
+
+	let wctr=$wctr+1
+	sleep 60
+
+	# check whether we have to switch HDD
+	check_signal2switch
+
+	# check whether we have to switch HDD - but only if asynccopy is already done
+	check_signal2softswitch
+	
+    done
+
+    # check whether we have to switch HDD
+    check_signal2switch
+
+    # check whether we have to switch HDD - but only if asynccopy is already done
+    check_signal2softswitch
+
+    #check for stop
+    if [ -f $SIGNAL/stop ] ; then
+	echo "`date` INF $0 stop received" >> $LOG
+	#look for async copy before stop
+	let wctr=0
+
+	echo "`date` INF looking for asynccopy" >> $LOG 
+	while [ -f /tmp/asynccopy.lck ]
+	do
+	    if [ $wctr -gt 5 ] ; then 
+		let wctr=0
+	    fi
+
+    	    if [ $wctr -eq 0 ] ; then 
+		echo "`date` INF asynccopy still running" >> $LOG 
+		let wctr=0
+    	    fi
+
+	    let wctr=$wctr+1
+	    sleep 60
+	done
+	echo "`date` INF asynccopy stoped." >> $LOG 
+	echo "`date` INF $0 shutdown." >> $LOG
+	# rm -f $SIGNAL/stop
+	rm -f $LOCKFILE
+	exit 0
+    fi
+
+    #check for reload
+    if [ -f $SIGNAL/reload ] ; then 
+	echo "`date` INF $0 reload received" >> $LOG 
+	echo "`date` INF $0 reload received - task runs in background now."  
+	rm -f $SIGNAL/reload
+	rm -f $LOCKFILE
+	if [ -f "$0-fix" ] ; then
+	    echo "`date` INF $0-fix file found. Activasting fix!"
+	    mv "$0-fix" "$0"
+	    $0 &
+	    exit 0
+	else
+	    $0 &
+	fi
+	exit 0
+    fi
+}
+
+# this will only occur if all async copies are done / usefull for lazymode
+function check_signal2softswitch()
+{
+    # check for soft switch
+    # automatic changing of hdd requested
+    if [ -f $SIGNAL/softswitch ] ; then 
+	#look for async copy
+	if [ -f /tmp/asynccopy.lck ] ; then
+	    return 1
+	else
+	    # if there is no async now check whether there is a server clone on the way (there can be multiple instances)
+	    ls /tmp/clone2secondserver.*.lck 2>/dev/null >/dev/null
+	    if [ ! $? -eq 0 ] ; then
+		# ok both conditions fine, no server clone, no async 
+		# give cron chance to launch asynccopy - IMPROVE: check spool!
+		sleep 305
+		if [ -f /tmp/asynccopy.lck ] ; then
+		    return 1
+		fi
+		echo "`date` INF found softswitch signal - try to switch disk now." >> $LOG 
+		mv $SIGNAL/softswitch $SIGNAL/switch
+		check_signal2switch
+		return 0
+	    fi
+	fi
+    fi
+}
+
+
+function check_signal2switch()
+{
+    #check for switch
+    #automatic changing of hdd requested
+    if [ -f $SIGNAL/switch ] ; then 
+
+	#look for async copy
+	let wctr=0
+
+	echo "`date` INF looking for asynccopy" >> $LOG 
+	while [ -f /tmp/asynccopy.lck ]
+	do
+	    if [ $wctr -gt 5 ] ; then 
+		let wctr=0
+	    fi
+
+    	    if [ $wctr -eq 0 ] ; then 
+		echo "`date` INF asynccopy still running - can't switch" >> $LOG 
+		let wctr=0
+    	    fi
+
+	    let wctr=$wctr+1
+	    sleep 60
+	done
+	echo "`date` INF asynccopy stoped." >> $LOG 
+
+	let EXI2STAT=1
+
+
+	# detect currently mounted DDUMBFS
+	CURRENTHD=""
+	mtline=`mount | grep $DDUMBVOL`
+	if [ -z "$mtline" ] ; then
+	    #very strange !!
+	    echo "`date` ERR NO CURRENTHD, DDUMBFS NOT MOUNTED ????" >> $LOG 
+	    #TODO!!!
+	else
+	    for i in  $DDDEVICELIST
+		do
+		echo $mtline | grep "/mnt/$i" > /dev/null
+		if [ $? -eq 0 ] ; then
+    		    CURRENTHD=$i
+		    break
+		fi
+	    done
+	fi
+
+
+	# now $TARGETHD should have value, if not serious problem
+	if [ -z $CURRENTHD ] ; then
+	    # very strange !!
+	    echo "`date` INF VERY STRANGE CURRENTD WITHOUT VALUE????" >> $LOG 
+	    #TODO
+	fi
+
+	# move crc checked files from tmp folder to final destination
+	# this is already done in umounter but it has to be here before creating the report
+	for FN in `ls ${ASYNCTARGET}.tmp`
+	do
+	    echo "moving crc checked file ${ASYNCTARGET}.tmp/$FN ${ASYNCTARGET}/$FN" >> $LOG
+	    mv ${ASYNCTARGET}.tmp/$FN ${ASYNCTARGET}/$FN 2>> $LOG 
+	done
+
+	# ADDED 7/16 - STILL UNDER OBSERVATION!
+	$SIZECONTROLLER >>$LOG
+
+	tmprep="/tmp/tmprep_$$.tmp"
+	$BACKUPREPORT $GWAITCTR $ASYNCBACKUPCTR $TOTALBACKUPCTR $TOTALBACKUPWITHERRORCTR >$tmprep
+	echo "`date` INF Backupreport: $tmprep" >> $LOG
+
+
+
+	# fix 0.1.4.18.5.17
+	# if diskswitch allowed we do that now!
+	if [ -f "$SIGNAL/donotswitch" ] ; then
+    	    echo "`date` INF - diskswitching disabled" >> $LOG
+	else
+	    $UMOUNTER 2>/dev/null >/dev/null
+	    if [ $? -eq 0 ]; then
+		#we try it for all avail devices. the device itself is choosed by $SWITCHER
+		for i in  $DDDEVICELIST
+		do
+		    SWITCHED_DEV=`$SWITCHER`
+		    if [ ! -z $SWITCHED_DEV ];then
+			TARGETHD=$SWITCHED_DEV
+		    else
+			echo "`date` WAR - Call to $SWITCHER returns empty result!!!" >> $LOG
+		    fi
+
+		    # fix 0.1.4.18.5.17
+		    select-mounter
+		    echo "`date` INF mount will use $MOUNTER" >> $LOG
+
+		    echo "`date` INF start to switch hdd from $CURRENTHD to $TARGETHD." >> $LOG
+		    $MOUNTER $TARGETHD 2>/dev/null >/dev/null
+		    if [ $? -eq 0 ] ; then
+			echo "`date` INF successfully switched from $CURRENTHD to $TARGETHD." >> $LOG
+			let EXI2STAT=0
+			sleep 6
+			break
+		    else
+			echo "`date` ERR changing disk from $CURRENTHD to $TARGETHD." >> $LOG
+		    fi
+		done
+	    else
+		echo "`date` ERR unable to mount $TARGETHD - umount failed." >> $LOG
+		# TODO VERY IMPORTANT!
+	    fi
+	fi #diskswitching allowed check end
+
+
+	# after diskswitch we patch/finalize the report
+	$PATCHBACKUPREPORT $tmprep
+
+	if [ $EXI2STAT -eq 0 ] ; then
+	    
+	    #gwaitctr log the total wait time
+    	    if [ ! $GWAITCTR -eq 0 ] ; then
+		echo "`date` WAR Your system was waiting $GWAITCTR s for async backups - increase the value of PARANOIMODE.">>$LOG
+	        let GWAITCTR=0
+	    fi
+
+	    echo "`date` INF $TOTALBACKUPCTR backups made. $ASYNCBACKUPCTR CRC checked. $TOTALBACKUPWITHERRORCTR backups result in error.">>$LOG
+
+	    let ASYNCBACKUPCTR=0
+	    let TOTALBACKUPCTR=0
+	    let TOTALBACKUPWITHERRORCTR=0
+
+	    # usage echo "HDD `trans-discnames $i` could be removed."
+
+	    SUBJECT="`hostname` Backupdevice switched from `trans-discnames $CURRENTHD` to `trans-discnames $TARGETHD`."
+	    TXTFILE=$tmprep
+	    send_mail
+	    TXTFILE=""
+	else
+	    SUBJECT="`hostname` Switching backupdevice from `trans-discnames $CURRENTHD` failed!"
+	    echo "Although switching of USB disc failed the system will continue with already mountes disk. But you should inform the support." > "$tmprep.1"
+	    echo "" >> "$tmprep.1"
+	    cat $tmprep >> "$tmprep.1"
+	    TXTFILE="$tmprep.1"
+	    TXT=""
+	    send_mail
+	    rm -f "$tmprep.1"
+	fi
+	rm -f $tmprep
+
+	rm -f "$SIGNAL/switch"
+	if [ -f "$SIGNAL/switch" ] ; then
+	    #FATAL
+	    msg="`date` WARNING can't delete signal file $SIGNAL/switch !!!!\n\n${VERSION}"
+	    echo $msg >> $LOG
+	    SUBJECT="`hostname` $msg"
+	    TXTFILE=""
+	    TXT="$SUBJECT"
+	    send_mail
+	fi
+    
+	# show configuration after disc change
+	showconfigvals
+
+	# check whether bufferdisk is really processed
+	chk-dir
+
+    fi
+}
+
+
+# set rights to backup directories - so that NFS servers have full access
+function setvmrights()
+{
+S1=$1
+
+if [ -z $S1 ] ; then
+    echo "`date` ERR unable to set rights in >$S1< - invalid argument to function!" >> $LOG
+    return 1
+fi
+
+if [ -d $S1 ];then
+    echo "`date` INF setting NFS rights for ESXI server in $S1." >> $LOG
+    #rights for vmware 
+    chown nobody -R $S1/
+    chgrp nogroup -R $S1/
+    chown nobody $S1
+    chgrp nogroup $S1
+    chmod 777 $S1
+    return 0
+else
+    echo "`date` ERR unable to set rights in $S1 - invalid directory" >> $LOG
+    return 1
+fi
+}
+
+
+# link tools into the backup directories
+function linkutility()
+{
+S1=$1
+
+if [ -d $S1 ];then
+    echo "`date` INF linking tools to $S1" >> $LOG
+    ln -f -s $LINKUTILDIR/mount-disks $S1/mount-disks
+    ln -f -s $LINKUTILDIR/xrestoremanager.vmm $S1/xrestoremanager.vmm
+    ln -f -s $LINKUTILDIR/umount-disks $S1/umount-disks
+
+    #check whether it is bufferdisk, if yes create static hardlink for each backup on bufferdisk
+    echo $S1 | grep $VMBACKUPTARGET >> /dev/null
+    if [ $? -eq 0 ] ;then
+	# cut the part before the last -
+        ldir=`echo ${S1%-*}`
+
+	# delete folder
+        if [ -d $ldir ];then
+    	    rm -rf $ldir
+	fi
+
+        mkdir $ldir
+	if [ -d $ldir ];then
+
+	    for fn2ln in `ls -rt $S1`
+	    do
+		echo "`date` INF linking file $fn2ln " >> $LOG
+		ln -f $S1/$fn2ln $ldir/$fn2ln
+	    done
+
+	    chmod 777 $ldir
+	    chown nobody -R $ldir/
+	    chgrp nogroup -R $ldir/
+
+	else
+	    echo "`date` ERR unable to link - invalid directory $ldir." >> $LOG
+	fi
+    fi
+else
+    echo "`date` ERR unable to link tools to $S1 - invalid directory." >> $LOG
+fi
+}
+
+
+
+
+# count the VM's we have to process
+# After call the global var MAXJOBS is set to a numeric value
+
+function countvm
+{
+	let MAXJOBS=0
+	# single machine backup could be done like that
+	# MAXJOBS=`echo $VMLIST | wc -w`
+	# in case of multiple ESXi Hosts we have to use annother way to count the VMs
+
+	if [ -f /opt/AmutaQ!/etc/AmutaQ!.conf.0 ];then 
+	    let f=0
+	    while [ $f -lt 10 ];do
+		if [ -f /opt/AmutaQ!/etc/AmutaQ!.conf.$f ];then
+		    source /opt/AmutaQ!/etc/AmutaQ!.conf.$f
+		    countvm-aux
+		fi
+		let f=$f+1
+	    done
+	    source /opt/AmutaQ!/etc/AmutaQ!.conf
+	else
+	    countvm-aux
+	fi
+}
+
+function countvm-aux
+{
+for VMCTRTMP in $VMLIST
+    do
+        let MAXJOBS=$MAXJOBS+1
+    done
+}
+
+function check_lazybone
+{
+    #LAZYBONEFLAG - go to waitmode after all backups
+    let maxjobs2backup=$MAXJOBS-1
+
+    if [ $LAZYBONEFLAG -eq 1 ];then
+	if [ $LAZYBONE -gt $maxjobs2backup  ] ; then
+	    # we habe backups for all machines!
+	    echo "`date` INF we backuped all VMs after last wait signal - going to switch disk and sleep ($LAZYBONE of $MAXJOBS)" >> $LOG
+	    touch "$SIGNAL/wait"
+	    touch "$SIGNAL/softswitch"
+	    grep -e dayofweek -e dayofmonth $LASTDEVICE >> /dev/null
+	    if [ $? -eq 1 ]; then
+		if [ -f $LASTDEVICE ];then
+		    cp $LASTDEVICE $BEFOREDEVICE
+		fi
+            fi
+	    let LAZYBONE=0
+	else
+	    echo "`date` INF Lazybone mode is enabled ($LAZYBONE of $MAXJOBS)" >> $LOG
+	fi
+	let LAZYBONE=$LAZYBONE+1
+	echo "`date` INF Lazybone counter incremented to $LAZYBONE" >> $LOG
+    else
+    	    echo "`date` INF Lazybone mode disabled." >> $LOG
+    fi
+}
+
+
+
+#########################################################
+#                       MAIN                            #
+#########################################################
+
+source /opt/AmutaQ!/lib/mail.lib
+echo "">>"$LOG"
+echo "`date` INF $VERSION startup." >>"$LOG"
+echo "`date` INF $0 version $LV">>"$LOG"
+cd $HOMEDIR
+
+
+while true
+do
+  let EXITSTAT=0
+  ERRMSG=""
+  RSTMSG=""
+  source /opt/AmutaQ!/etc/AmutaQ!.conf
+
+  # kd 7.1.20 make backup tool selectable (check it always)
+  #BAZAAR="/opt/AmutaQ!/bazaar/vm_backup_single"
+  if [ ! "$BACKUPTOOL" == "LAMW" ];then
+    # this is the default setting: use bazaar for backup
+    BAZAAR="/opt/AmutaQ!/bazaar/vm_backup_single"
+    echo "`date` INF will use bazaar ($BAZAAR) for backup" >> $LOG
+  else
+    # only if explicitly set use lamw
+    BAZAAR="/opt/AmutaQ!/lamw/vm_backup_single"
+    echo "`date` INF will use lamw ($BAZAAR) for backup" >> $LOG
+  fi
+
+# #housekeeping
+  echo "`date` INF PID:$0 $$">> $LOG
+# 20.11.19 ah: skip housekeeping on skipcrc signal
+  if [ ! -f $SIGNAL/skipcrc ] ; then
+    $HOUSEKEEPER >> $LOG 
+  else
+    echo "`date` INF Skip housekeeping due to skipcrc signal (NFS Volume?)" >> $LOG
+  fi
+
+  for VMGUEST in $VMLIST
+    do
+
+    # check whether ddumbfs is mounted - it makes absolute no sense to continue if there is no ddumbfs
+    let c4dm=1
+    while [ ! $c4dm -eq 0 ] ; do
+	check4ddmount
+	c4dm=$?
+	if [ ! $c4dm -eq 0 ] ; then
+	    echo "`date` ERR check4ddmount returns $c4dm! - can't continue!">>"$LOG"
+	else
+	    echo "`date` INF check4ddmount returns $c4dm! - ddumbfs useable.">>"$LOG"
+	fi
+    done
+
+    # call to countvm will initialise MAXJOBS
+    countvm
+
+    # check whether lazybone mode is enabled
+    check_lazybone
+
+    # check for signal
+    check_signal
+
+    #start Bazaar
+    echo "">>"$LOG"
+    echo "`date` INF will start bazaarvcb backup for $VMGUEST!">>"$LOG"
+    echo "`date` $LOG2" > $LOG2
+
+    TEMPCTR=`cat /tmp/$VMGUEST 2>/dev/null`
+    if [ -z $TEMPCTR ] ; then
+    let PARANOIACTR=0
+	else
+    let PARANOIACTR=$TEMPCTR
+    fi
+
+    # to disable async ( =crc-check =slow) ser it to -1, to use it always set it to 0. All aother val will do it n times.
+    # e.g. 2 means after two backups direct to ddumbfs it will do one async backup
+    if [ $PARANOIAMODE -le $PARANOIACTR ] && [ $PARANOIAMODE -gt -1 ] ; then
+
+	#if there are too many jobs in queue we have to wait before we write next job
+	let WAITCTR=0
+	FILECOUNT=`ls -1 $SPOOLDIR | wc -l`
+
+	let maxjobs4async=$MAXJOBS-1
+	while [ $FILECOUNT -gt $maxjobs4async ]
+	do
+	    echo "`date` WAR too many jobs in queue: $FILECOUNT/$MAXJOBS" >> $LOG 
+	    sleep 300
+	    let WAITCTR=$WAITCTR+300
+	    FILECOUNT=`ls -1 $SPOOLDIR | wc -l`
+	    #check for signal
+	    check_signal
+	done
+
+	#check whether this job is already in spooldir
+	let FNINQUEUE=1
+	while [ $FNINQUEUE -eq 1 ]
+	do
+	    #echo "`date` INF checking $SPOOLDIR for $VMGUEST" >>$LOG
+	    let FFOUND=0
+	    for f in `ls -rt $SPOOLDIR`
+	    do
+		#echo "`date` INF checking $SPOOLDIR/$f" >>$LOG
+		cat "$SPOOLDIR/$f" | grep $VMGUEST >/dev/null
+		if [ $? -eq 0 ] ; then
+		    echo "`date` WAR can't process $VMGUEST - this machine is already in queue $f waiting since $WAITCTR s" >>$LOG
+		    let FFOUND=1
+		    break
+		fi
+	    done
+	    if [ $FFOUND -eq 0 ] ; then
+		#we can go
+		let FNINQUEUE=0
+	    else
+		#we have to wait
+		check_signal
+		sleep 300
+		let WAITCTR=$WAITCTR+300
+	    fi
+	done
+
+	# lets check the space on BUFFI!
+	let BUFSPACE=1
+	let BUFCTR=0
+	let WARBUFCTR=0
+	while [ $BUFSPACE -eq 1 ] 
+	do
+	    $BUFFERDISKCHECK $VMGUEST 2>>"$LOG" >>"$LOG"
+	    if [ $? -eq 0 ] ; then 
+		let BUFSPACE=0
+	    else
+		#we have to wait
+		check_signal
+		sleep 300
+		let WAITCTR=$WAITCTR+300
+	    fi
+
+	    let BUFCTR=$BUFCTR+1
+	    if [ $BUFCTR -gt 2 ] ; then 
+		let BUFCTR=0
+		echo "`date` INF Still waiting for space on bufferdisk">>$LOG
+	    fi
+
+	    let WARBUFCTR=$WARBUFCTR+1
+	    if [ $WARBUFCTR -gt 36 ] ; then # ~3H
+		let WARBUFCTR=0
+		echo "`date` INF Still waiting for space on bufferdisk send warning.">>$LOG
+		bufferdir=`dirname $VMBACKUPTARGET`
+		msgfile="/tmp/msg_$$.tmp"
+		date > $msgfile
+		echo "No space on bufferdisk - already waiting $WAITCTR" >> $msgfile
+		echo "" >> $msgfile
+		df -h | grep "$bufferdir" >> $msgfile
+		echo "" >> $msgfile
+		du -h "$VMBACKUPTARGET" >> $msgfile
+		echo "" >> $msgfile
+		tail -n 300 $RSYNC_LOG >> $msgfile # last 300 lines
+		SUBJECT="`hostname` `date` Warning: no space on bufferdisk."
+		TXTFILE="$msgfile"
+		TXT=""
+		send_mail
+		TXTFILE=""
+		rm -f $msgfile
+	    fi
+	done
+
+	#collect statistic data
+	if [ ! $WAITCTR -eq 0 ] ; then
+	    echo "`date` WAR Your system was waiting $WAITCTR s to - check the value of PARANOIMODE.">>$LOG
+	    let GWAITCTR=$GWAITCTR+$WAITCTR
+	fi
+
+	let ASYNCBACKUPCTR=$ASYNCBACKUPCTR+1
+
+	#now do the backup
+	echo "`date` INF async job check done." >> $LOG 
+	echo "`date` INF $VMGUEST will be written to bufferdisk $VMBACKUPTARGET - $PARANOIACTR from $PARANOIAMODE">>"$LOG"
+	$BAZAAR $VMGUEST $VMBACKUPTARGET $KEEPVERSIONS $LOG2 1 2>>"$LOG2" >>"$LOG"
+	let BZRST=$?
+    else
+	echo "`date` INF $VMGUEST will be written to $ASYNCTARGET - $PARANOIACTR from $PARANOIAMODE">>"$LOG"
+	if [ -f  $DISCSPECIFICKEEPS ] ;then
+	    source  $DISCSPECIFICKEEPS
+	    echo "Found Disc specific value for Keep Versions - value is: $KEEPVERSIONSONFINALTARGET" >>"$LOG"
+	fi
+
+	#echo "`date` INF start bazaar backup for $VMGUEST!">>"$LOG"
+        $BAZAAR $VMGUEST $ASYNCTARGET $KEEPVERSIONSONFINALTARGET $LOG2 0 2>>"$LOG2" >>"$LOG"
+	let BZRST=$?
+    fi
+    echo "`date` INF call to $BAZAAR resulting in $BZRST" >>"$LOG"
+
+    if [ ! $BZRST -eq 0 ] ; then
+	if [ $BZRST -eq 222 ] ; then
+	    #this machine is currently not avail for backup!
+	    RSTMSG="${RSTMSG}`date` $VMGUEST PAUSED!\n"
+	    let BAZAARSTAT=1
+	else
+	    #backup results in error
+	    let EXITSTAT=1
+	    let TOTALBACKUPWITHERRORCTR=$TOTALBACKUPWITHERRORCTR+1
+
+	    ERRMSG="${ERRMSG}`date` Backup failed for ${VMGUEST}! (ERRCODE:$BZRST)\n\n"
+	    let BAZAARSTAT=1
+	    let TOTALBACKUPCTR=$TOTALBACKUPCTR+1
+
+	fi
+    else
+	RSTMSG="${RSTMSG}`date` Backup ok for $VMGUEST!\n"
+	let BAZAARSTAT=0
+	let TOTALBACKUPCTR=$TOTALBACKUPCTR+1
+    fi
+    cat $LOG2 >> $LOG
+    echo "">>"$LOG"
+
+    if [ $PARANOIAMODE -le $PARANOIACTR ] && [ $PARANOIAMODE -gt -1 ] ; then
+	if [ $BAZAARSTAT -eq 0 ];then
+		#async copy - we just create jobfiles
+		S1=`tail -n 15 $LOG2 | grep renaming | cut -d " " -f 6`
+
+		if [ -d $S1 ] ; then
+		    setvmrights $S1
+		    linkutility $S1
+
+
+		    JFNWDT="ASYNC_`date +"%Y%m%d%H%M%S"`"
+		    echo "`date` INF creating jobfile ($JFNWDT) for asymetric rsync ==> /usr/bin/rsync -rltzuvh $S1 ${ASYNCTARGET}.tmp">>"$LOG"
+		    mkdir $SPOOLDIR 2>/dev/null
+		    mkdir ${ASYNCTARGET}.tmp 2>/dev/null
+		    chmod 777 ${ASYNCTARGET}.tmp
+
+		    # do cloning
+		    # we do not create an job file for async - this will decide clone2secondserver
+		    # echo "/usr/bin/rsync -rltWuvh $S1 ${ASYNCTARGET}.tmp">> "$SPOOLDIR/$JFNWDT"
+		    echo "/usr/bin/rsync -rltWuvh $S1 ${ASYNCTARGET}.tmp">> "/tmp/$JFNWDT"
+		    /opt/AmutaQ!/tools/clone2secondserver "/tmp/$JFNWDT" CLONER4$VMGUEST &
+		    sleep 180
+		else
+		    echo "`date` ERR can't get valid path from previous backup - very strange!"
+		fi
+		#set the PARANOIA CTR back to 0
+		echo 0 > "/tmp/$VMGUEST"
+	fi
+    else
+
+    #we did direct copy - now finish the directoy structure
+	if [ $BAZAARSTAT -eq 0 ];then
+	    S1=`tail -n 15 $LOG2 | grep renaming | cut -d " " -f 6`
+	    setvmrights $S1
+	    linkutility $S1
+	    let PARANOIACTR=$PARANOIACTR+1
+	    echo $PARANOIACTR > "/tmp/$VMGUEST"
+	fi
+    fi
+
+    echo "">>"$LOG"
+    echo "">>"$LOG"
+    echo "">>"$LOG"
+
+  #machine list loop end
+  done
+
+
+  if [ $EXITSTAT -eq 0 ] ; then
+    SUBJECT="`hostname` BACKUP OK."
+    TXTFILE=""
+    TXT="$RSTMSG\n\n${VERSION}"
+    send_mail
+  else
+    SUBJECT="`hostname` `date` FAILURE!!!"
+    TXTFILE=""
+    TXT="${ERRMSG}\n\n${RSTMSG}\n\n${VERSION}"
+    send_mail
+    sleep 30
+    check_signal
+    sleep 900 #lets wait 15 mins
+  fi
+
+#true loop
+sleep 10
+
+let ESXICONF=$ESXICONF+1
+if [ ! -f /opt/AmutaQ!/etc/AmutaQ!.conf.$ESXICONF ];then
+    let ESXICONF=0
+fi
+
+#in case we have no existing rotation config
+if [ -f /opt/AmutaQ!/etc/AmutaQ!.conf.$ESXICONF ];then
+    echo "`date` INF now changing to configuration file /opt/AmutaQ!/etc/AmutaQ!.conf.$ESXICONF for next backup" >> $LOG 
+    cp /opt/AmutaQ!/etc/AmutaQ!.conf.$ESXICONF /opt/AmutaQ!/etc/AmutaQ!.conf
+fi
+
+done
+del_lock
+

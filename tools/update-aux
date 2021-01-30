@@ -1,0 +1,253 @@
+#! /bin/bash
+
+# by k.deiss@it-userdesk.de
+# AmutaQ autoupdater
+# V 0.0.1.28.3.17
+# V 0.0.2.30.3.17 minor fix in mail sendout
+# V 0.0.3.30.3.17 log fix
+# V 0.0.4.18.5.17 also backup backup!
+
+MYVERSION="0.0.4.18.5.17"
+
+BASEDIR="/opt/AmutaQ!"
+LOG=/var/log/amu_update.log
+ERRLOG=$LOG
+FNAME="release"
+BACKUPDIR="$BASEDIR/sysbackup"
+
+source /opt/AmutaQ!/etc/AmutaQ!.conf
+source /opt/AmutaQ!/lib/mail.lib
+
+let WAITSTATE=0
+
+OUTPUT=$BASEDIR/$FNAME.tar
+INFOFILE=$FNAME.inf #version number
+VERSIONFILE=$FNAME.txt #version number
+RSTFILE="/tmp/update_rst.tmp" #temp file for mail send out
+AMUSTART="/opt/AmutaQ!/ddumbfs/mount_fs"
+
+mkdir $BASEDIR/log 2>/dev/null
+mkdir $BACKUPDIR 2>/dev/null
+
+REMOTETARGET="http://it-userdesk.de/dl/amutaq"
+
+let VERBOSE=0 		# the level this script is talking
+let AUTOUPDATE=1	# whether to update the getdata scripts automatically
+
+CONF="$BASEDIR/etc/update.conf"
+touch $CONF
+if [ ! -s $CONF ];then
+    echo "let VERBOSE=1		# 0=nearly silent, 1=fair, 2=extended" >> $CONF
+    echo "let AUTOUPDATE=1	# run update automatically" >> $CONF
+fi
+source $CONF
+
+mkdir $BASEDIR/log 2>/dev/null
+
+function eecho
+{
+msg=$1
+if [ $VERBOSE -gt 0 ];then
+    echo "`date` $msg" >> $LOG
+fi
+}
+
+function stopAmuta
+{
+eecho "INF try to stop all AmutaQ! related processes the soft and recommended way."
+
+#stop signal file erzeugen
+date > $SIGNAL/stop
+
+#falls vorhanden wait und waita loeschen - ansonsten kann stop signal nicht verarbeitet werden
+if [ -f $SIGNAL/wait ] ;then
+    let WAITSTATE=1
+    rm $SIGNAL/wait
+fi
+
+if [ -f $SIGNAL/waita ] ;then
+    rm $SIGNAL/waita
+fi
+
+let wctr=0
+
+eecho "INF looking for asynccopy...."
+while [ -f /tmp/asynccopy.lck ]
+do
+    if [ $wctr -gt 5 ] ; then 
+	let wctr=0
+    fi
+
+    if [ $wctr -eq 0 ] ; then 
+	eecho "INF asynccopy still running"
+	let wctr=0
+    fi
+
+    let wctr=$wctr+1
+    sleep 10
+done
+eecho "INF asynccopy done!"
+
+
+eecho "INF looking for backup2ddumb...."
+while [ -f /tmp/backup2ddumb.lck ]
+do
+    if [ $wctr -gt 5 ] ; then 
+	let wctr=0
+    fi
+
+    if [ $wctr -eq 0 ] ; then 
+	eecho "INF backup2ddumb still running"
+	let wctr=0
+    fi
+
+    let wctr=$wctr+1
+    sleep 10
+done
+eecho "INF backup2ddumb done!"
+return 0
+}
+
+
+
+function getTAR
+{
+rm -f "$BASEDIR/R_$FNAME.tar"
+
+eecho "INF start download of tarball."
+wget -O "$BASEDIR/R_$FNAME.tar" "$REMOTETARGET/$FNAME.tar" 2>/dev/null
+STATUS=$?
+if [ $STATUS -eq 0 ] ; then
+    eecho "INF tarball loaded sucessfully"
+else
+    eecho "WAR download of tarball failed"
+    return 1
+fi
+
+
+eecho "INF verifying tarball."
+tar -tf "$BASEDIR/R_$FNAME.tar" &>/dev/null
+STATUS=$?
+if [ $STATUS -eq 0 ] ; then
+    eecho "INF tarball seems to be ok."
+else
+    eecho "ERR tarball is damaged($STATUS)!"
+    return 2
+fi
+
+
+eecho "INF creating Backup of system."
+BACKUPFN="backup_`date`.tar"
+tar --exclude="/opt/AmutaQ!/update" --exclude="2015*" --exclude=*.idx --exclude="temp" --exclude="*.tmp" --exclude="*.txt" --exclude="test*" --exclude="*.tar" --exclude="bazaarvc*" -cf "$BACKUPDIR/$BACKUPFN" /opt/AmutaQ! 2>/dev/null
+STATUS=$?
+if [ $STATUS -eq 0 ] ; then
+    eecho "INF Backup of current system >$BACKUPFN< created"
+else
+    eecho "ERR Can't create backup($STATUS)!"
+    return 3
+fi
+
+eecho "INF stoping AmutaQ! Backupsystem."
+stopAmuta
+STATUS=$?
+if [ $STATUS -eq 0 ] ; then
+    eecho "INF AmutaQ! system down."
+else
+    eecho "ERR Can't stop AmutaQ! ($STATUS)!"
+    return 4
+fi
+
+eecho "INF extracting tarball."
+tar -C / -xf "$BASEDIR/R_$FNAME.tar" 
+STATUS=$?
+if [ $STATUS -eq 0 ] ; then
+    eecho "INF tarball extracted."
+else
+    eecho "ERR Can't extract tarball($STATUS)!"
+    return 5
+fi
+
+# restore signal handling
+if [ $WAITSTATE -eq 1 ];then
+    date > $SIGNAL/wait
+fi
+rm -f $SIGNAL/stop
+source "/opt/AmutaQ!/etc/AmutaQ!.conf"
+
+eecho "INF Restart AmutaQ!"
+$AMUSTART >> $LOG
+STATUS=$?
+if [ $STATUS -eq 0 ] ; then
+    eecho "INF AmutaQ statup ok!"
+else
+    eecho "ERR Can't start AmutaQ($STATUS)!"
+    return 6
+fi
+return 0
+}
+
+
+function checkTimeStamp
+{
+wget -O "$BASEDIR/R_$VERSIONFILE" $REMOTETARGET/$VERSIONFILE 2>/dev/null
+STATUS=$?
+if [ ! $STATUS -eq 0 ] ; then
+    echo "`date` INF Loading $VERSIONFILE FAILURE($STATUS)." >> $LOG
+    return 1
+fi
+
+REMOTEVERSION=`cat $BASEDIR/R_$VERSIONFILE`
+if [ ! "$REMOTEVERSION" == "$VERSION" ];then
+    if [ $VERBOSE -gt 0 ];then
+	echo "" >> $LOG
+	echo "`date` INF Update available local:$VERSION remote:$REMOTEVERSION" >> $LOG
+    fi
+    return 0
+else
+    if [ $VERBOSE -gt 1 ];then
+        echo "" >> $LOG
+        echo "`date` INF No Update available "$VERSION" == "$REMOTEVERSION"." >> $LOG
+    fi
+    return 2
+fi
+}
+
+
+
+if [ $AUTOUPDATE -eq 0 ];then
+    if [ $VERBOSE -gt 1 ];then
+	echo "`date` INF autoupdater disabled" >> $LOG
+    fi
+    exit 0
+fi
+
+checkTimeStamp
+if [ ! $? -eq 0 ] ; then
+    exit 1
+fi
+
+if [ $VERBOSE -gt 0 ];then
+    echo "`date` INF $0 AmutaQ! autoupdater $MYVERSION startup" >> $LOG
+fi
+
+getTAR
+if [ $? -eq 0 ] ; then
+    echo "`date` INF $0 exit successfully" >> $LOG
+    SUBJECT="`hostname` update to $VERSION ok."
+    tail -n 51 $LOG >$RSTFILE
+    TXTFILE=$RSTFILE
+    TXT=""
+    send_mail
+    TXTFILE=""
+else
+    echo "`date` ERR $0 exit with error" >> $LOG
+    SUBJECT="`hostname` FAILED auto-update to $VERSION."
+    tail -n 102 $LOG >$RSTFILE
+    TXTFILE=$RSTFILE
+    TXT=""
+    send_mail
+    TXTFILE=""
+    exit 1
+fi
+
+rm -f $RSTFILE

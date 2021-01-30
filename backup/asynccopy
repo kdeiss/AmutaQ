@@ -1,0 +1,75 @@
+#! /bin/bash
+# by k.deiss@it-userdesk.de
+# wrapper for call to asynccopy
+# V 0.0.1.27.12.15
+# V 0.0.2.1.1.16 bugfix
+# V 0.0.3.11.1.16 bugfix await signal
+# V 0.0.4.31.12.20 kd/ah bugfix detecting process already running
+
+source /opt/AmutaQ!/etc/AmutaQ!.conf
+LOG=$ASYNC_LOG
+
+##############script detection#########################
+LOCKFILE=/tmp/$(basename $0).lck
+#[ -f $LOCKFILE ] && { echo "`date` INF $0 already running" >> $LOG; exit 1; }
+#[ -f $LOCKFILE ] && { exit 1; }
+
+if [ -f $LOCKFILE ] ; then
+    SPID=`cat $LOCKFILE`
+#    ps -e | grep $SPID >> /dev/null
+    ps -o cmd -p $SPID |grep `basename $0` >> /dev/null
+    if [ $? -eq 0 ] ; then
+	# echo "`date` INF $0 already running"
+	exit 1
+    else
+	echo "`date` WAR $0 has lockfile but is not running!" >> $LOG
+    fi
+fi
+
+
+del_lock()
+{
+    echo "`date` $0 WARNING external signal caught, exiting" >> $LOG
+    rm -f $LOCKFILE
+}
+
+trap "del_lock ; exit 1" 2 9 15
+echo $$ > $LOCKFILE
+##############script detection#########################
+
+# 12/2015
+# direkt fisch machen wenn eines der folgenden events ansteht und nicht mehr gross rumfaseln
+
+if [ -f $SIGNAL/switch ] ; then
+    # echo "`date` INF $0 (ID: $ctr) stoped: switch is pending." >> $LOG;
+    rm -f $LOCKFILE
+    exit 0
+fi
+
+if [ -f $SIGNAL/stop ] ; then
+    # echo "`date` INF $0 (ID: $ctr) stoped: stop is pending." >> $LOG;
+    rm -f $LOCKFILE
+    exit 0
+fi
+
+if [ -f $SIGNAL/astop ] ; then
+    # echo "`date` INF $0 (ID: $ctr) stoped: astop is pending." >> $LOG;
+    rm -f $LOCKFILE
+    exit 0
+fi
+
+if [ -f $SIGNAL/waita ] ; then
+    # echo "`date` INF $0 (ID: $ctr) stoped: astop is pending." >> $LOG;
+    rm -f $LOCKFILE
+    exit 0
+fi
+
+
+let lctr=0
+$0-aux 2>&1 | while read line
+do
+    echo "`date` WAR UNEXPECTED: $line" >>$LOG
+done
+
+
+rm -f $LOCKFILE

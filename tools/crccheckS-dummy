@@ -1,0 +1,91 @@
+#! /bin/bash
+# by k.deiss@it-userdesk.de
+# crc check after copy to bufferdisk, this just checks the source dir and is called immediately after the source is written
+# V 0.0.1 7.11.16 dummy script if crc check is supressed
+
+# don't edit from here
+# mkdir ${ASYNCTARGET}.tmp 2>/dev/null
+
+source /opt/AmutaQ!/etc/AmutaQ!.conf
+
+
+TMP="/tmp/acrc_$$.tmp"
+MAILTMP="/tmp/acrcmail_$$.tmp"
+LOG=$TMP
+#maillib includen
+source /opt/AmutaQ!/lib/mail.lib
+LOG=$ASYNC_LOG
+
+##############script killed #########################
+del_lock()
+{
+    echo "`date` $0 WARNING external signal caught, exiting (ID: $ctr)." >> $TMP
+    ex_and_clean
+}
+
+trap "del_lock ; exit 1" 2 9 15
+##############script detection#########################
+
+
+function ex_and_clean()
+{
+echo "" >> $TMP
+echo "" >> $TMP
+rm -f "$SOURCEDIR/.crc32"
+cat $TMP >> $LOG
+rm -f $TMP
+IFS=$SAVEFS
+}
+
+function check_signal()
+{
+	if [ -f $SIGNAL/crcstopS ] ; then
+	    echo "`date` INF $0 (ID: $ctr) stoped: crcstop is pending." >> $LOG;
+	    rm -f "$SOURCEDIR/.crc32"
+	    rm -f $TMP
+	    rm -f $SIGNAL/crcstopS
+	    exit 0
+	fi
+# the source crc check can run always!
+return 0
+}
+
+
+if [ -z $1 ]; then
+    echo `date` "usage $0 SOURCE" | tee -a $LOG
+    exit 1
+fi
+
+
+if [ ! -d $1 ]; then
+    echo `date` "invalid source - usage $0 SOURCE" | tee -a $LOG
+    exit 1
+else
+    SOURCEDIR=$1    
+    TARGETDIR="${ASYNCTARGET}.tmp/`basename $SOURCEDIR`"
+fi
+
+
+
+ctr=$$
+RST=""
+echo -n > $TMP
+check_signal
+echo >> $TMP
+
+echo "`date` INF Asyncronous source-only-crc dummy(!) starting $SOURCEDIR. (ID:$ctr)" >> $TMP
+
+if [ -f "$SOURCEDIR/.crc32" ] ; then
+    rm -f "$SOURCEDIR/.crc32"
+fi
+echo $$ > "$SOURCEDIR/.crc32"
+
+if [ -f "$SOURCEDIR/checksum.crc" ] ; then
+    rm -f "$SOURCEDIR/checksum.crc"
+fi
+
+SAVEIFS=$IFS
+IFS=$(echo -en "\n\b")
+echo "`date` INF source-only-crc dummy(!) finished -  CRC check SKIPPED!. (ID:$ctr)" >> $TMP
+IFS=$SAVEFS
+ex_and_clean

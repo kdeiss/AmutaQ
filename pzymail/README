@@ -1,0 +1,8 @@
+http://www.magiksys.net/pyzmail/
+
+Install on ubuntu
+apt-get install python-pip
+pip install pyzmail
+
+binaries
+/usr/local/bin/pyzsendmail

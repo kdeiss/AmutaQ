@@ -1,0 +1,68 @@
+#! /bin/bash
+# by k.deiss@it-userdesk.de
+# V 0.0.1 8.5.17
+# V 0.0.2.31.12.20 kd/ah bugfix detecting process already running
+
+# use 7z to decompress vm recently transfered by rsync
+# 46,16 * * * * /opt/AmutaQ!/transfer/extract # crontab sample
+
+LOG="/var/log/syncftp.log"
+
+SIGNALFINISH="COMPRESSION_FINISHED"
+SIGNALNOSWITCH="donotswitch"
+SIGNALRUNNING="COMPRESSION_RUNNING"
+QUEUEFILE="TRANSFERQUEUE"
+TRANSFERFINISH="TRANSFER_FINISHED"
+TRANSFERRUNNING="TRANSFER_RUNNING"
+
+let MMIN=1440 # if greater than 0 lockfile will be deleted after this time
+
+##############script detection#########################
+LOCKFILE=/tmp/$(basename $0).lck
+
+del_lock()
+{
+    echo "`date` WAR $0 external signal caught, exiting $0)." >> $LOG
+    rm -f $LOCKFILE
+}
+
+function check-age()
+{
+if [ -f $LOCKFILE ] ; then
+    if [ $MMIN -gt 0 ] ;then
+	ff=`find "/tmp" -name $(basename $0).lck -type f -mmin +$MMIN`
+	if [ ! -z "$ff" ] ; then
+	    echo "`date` WAR Lockfile older that $MMIN minutes. Will delete it now." >> $LOG
+	    rm -f $LOCKFILE
+	fi
+    fi
+fi
+}
+
+
+check-age
+
+if [ -f $LOCKFILE ] ; then
+    SPID=`cat $LOCKFILE`
+#    ps -e | grep $SPID >> /dev/null
+    ps -o cmd -p $SPID |grep `basename $0` >> /dev/null
+    if [ $? -eq 0 ] ; then
+        echo "`date` INF $0 already running!"
+        exit 1
+    else
+        echo "`date` WAR $0 has lockfile but is not running!"
+    fi
+fi
+
+
+
+trap "del_lock ; exit 1" 2 9 15
+echo $$ > $LOCKFILE
+##############script detection#########################
+
+echo "" >>$LOG
+echo "`date` INF $0 startup" >>$LOG
+$0-aux 2>&1 >>$LOG
+rst=$?
+echo "`date` INF $0 done - exitcode $rst" >>$LOG
+rm -f $LOCKFILE

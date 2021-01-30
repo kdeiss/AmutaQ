@@ -1,0 +1,89 @@
+#! /bin/bash
+#returns the amount of data transferred via ethx if nfs is enabled
+#0.1.0.25.9.17 first release
+#0.2.0.25.9.19 include tun
+
+#######################don't edit from here ########################
+
+source /opt/AmutaQ!/etc/AmutaQ!.conf
+IFC="/sbin/ifconfig"
+
+#returns 1 if underlaying filesystem is nfs
+function findfstype
+{
+CURRENTHD=""
+mtline=`mount | grep $DDUMBVOL`
+if [ -z "$mtline" ] ; then
+    #very strange !!
+    echo "`date` ERR NO CURRENTHD, DDUMBFS NOT MOUNTED????"
+    return 2
+else
+    for i in  $DDDEVICELIST
+        do
+        echo $mtline | grep "/mnt/$i" > /dev/null
+        if [ $? -eq 0 ] ; then
+            CURRENTHD=$i
+            break
+        fi
+    done
+fi
+
+FILESYS=`mount | grep "/mnt/$CURRENTHD "`
+#echo $FILESYS
+if [ ! -z "$FILESYS" ] ; then
+    FILESYS=`echo "$FILESYS" | cut -f 5 -d " "`
+    if [ "$FILESYS" == "nfs" ];then
+        return 1
+    fi
+fi
+}
+
+
+function measure_ethx
+{
+ethx=$1
+DBT="/tmp/sent_$ethx.tmp"
+DBR="/tmp/received_$ethx.tmp"
+
+#RX-Bytes:13146253984 (13.1 GB)  TX-Bytes:587911653696 (587.9 GB)
+RAW=`$IFC $ethx |grep "RX-Bytes"`
+RX=`echo $RAW |cut -f 2 -d ":" |cut -f 1 -d " "`
+TX=`echo $RAW |cut -f 3 -d ":" |cut -f 1 -d " "`
+
+if [ -f $DBT ] ;then
+    TXLAST=`tail -n 1 $DBT |cut -f 1 -d " "`
+else
+    TXLAST=$TX
+fi
+
+if [ -f $DBR ] ;then
+    RXLAST=`tail -n 1 $DBR |cut -f 1 -d " "`
+else
+    RXLAST=$RX
+fi
+
+let RXHR=$RX/1024/1024/1024
+let TXHR=$TX/1024/1024/1024
+
+let TXSINCELASTHR=($TX-$TXLAST)/1024/1024
+let RXSINCELASTHR=($RX-$RXLAST)/1024/1024
+echo "$ethx received $RXHR GB / $RXSINCELASTHR MB"
+echo "$ethx sent $TXHR GB / $TXSINCELASTHR MB"
+
+echo "$RX `date`" >> $DBR
+echo "$TX `date`" >> $DBT
+}
+
+
+findfstype
+rst=$?
+#echo $rst
+if [ ! $rst -eq 1 ];then
+    exit 1
+fi
+date
+for i in `$IFC | grep -e Ethernet -e tun | cut -f 1 -d " "`
+do
+    echo $i
+    measure_ethx $i
+done

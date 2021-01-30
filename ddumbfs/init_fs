@@ -1,0 +1,6 @@
+#! /bin/bash
+TARGET=sde1
+
+mkdir /mnt/$TARGET/l0
+mkdir /mnt/$TARGET/l0/ddumbfs
+mkddumbfs -B 16k -s 1800G /mnt/$TARGET/l0/ddumbfs

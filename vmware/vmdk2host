@@ -1,0 +1,168 @@
+#! /bin/bash
+# restore VM's into esxi Host with vmktool 
+# by k.deiss@it-userdesk.de
+# V 0.0.1.14.10.14 initial release
+# V 0.0.2.19.10.14 better logging
+
+
+
+TDATASTORE="datastore1" 	#Target Datastore in ESXI Server
+
+source /opt/AmutaQ!/etc/AmutaQ!.conf
+
+
+#don't edit
+
+P2DS="/vmfs/volumes"
+ME=`ifconfig eth0 2>/dev/null|awk '/inet addr:/ {print $2}'|sed 's/addr://'`
+CMDL="sshpass -p "$VMPASSWORD" ssh -o StrictHostKeyChecking=no $VMUSER@$VMHOST"
+LOG="/var/log/vm_restore.log"
+
+
+
+function create_nfs_link()
+{
+echo "esxcfg-nas -a $NFSDATASTORENAME -o $VMHOST -s $NFSTARGET"
+$CMDL "esxcfg-nas -a $NFSDATASTORENAME -o $ME -s $NFSTARGET"
+RST=$?
+#echo $RST
+
+#check whether exist + writeable
+$CMDL "date > $P2DS/$NFSDATASTORENAME/date.txt"
+RST=$?
+#echo $RST
+if [ ! $RST -eq 0 ] ; then
+    return 1
+fi
+echo "`date` INF NFS LINK $NFSDATASTORENAME OPERATIONAL" | tee -a $LOG
+}
+
+
+# mnt ddumbfs bazaar AmutaQ-XFCE-20141013171800
+# we need part 3 and 4
+function split_dir_name()
+{
+CURP=`pwd`
+SAVEIFS=$IFS
+IFS=$(echo -en "\n\b")
+P1=`echo $CURP | cut -f 1 -d "/"`
+P2=`echo $CURP | cut -f 2 -d "/"`
+P3=`echo $CURP | cut -f 3 -d "/"`
+P4=`echo $CURP | cut -f 4 -d "/"`
+P5=`echo $CURP | cut -f 5 -d "/"`
+IFS=$SAVEIFS
+
+if [ ! -z $P4 ] && [ ! -z $P4 ];then
+    return 0 
+fi
+
+exit 1
+
+}
+
+function remove_dir_after_error()
+{
+echo ""
+echo ""
+echo -n "DELETE $P2DS/$TDATASTORE/$P5 ? (y/n): "
+read answer
+if [ "$answer" == "y" ] || [ "$answer" == "Y" ] ; then
+    msg="Deleting of $P2DS/$TDATASTORE/$P5"
+    $CMDL "rm -r  $P2DS/$TDATASTORE/$P5"
+    if [ ! $? -eq 0 ] ; then
+	echo "`date`ERR $msg FAILED" | tee -a $LOG
+	echo "`date` INF EXIT - FILES/DIRECTORY REMAINIG ON ESXI HOST " | tee -a $LOG
+    else
+	echo "`date` INF $msg SUCCESS" | tee -a $LOG
+	echo "`date` INF EXIT " | tee -a $LOG
+    fi
+else
+    echo "`date` INF EXIT - FILES/DIRECTORY REMAINIG ON ESXI HOST " | tee -a $LOG
+fi
+exit 1
+}
+
+
+##########################################################
+#                    MAIN
+##########################################################
+
+
+NFSDATASTORENAME="NFSTEMP"
+NFSTARGET=$DDUMBVOL
+
+ME=`ifconfig eth0 2>/dev/null|awk '/inet addr:/ {print $2}'|sed 's/addr://'`
+pwd | grep "ddumbfs"
+if [ $? -eq 0 ] ; then
+    NFSDATASTORENAME="DDUMBFS_$ME"
+    NFSTARGET=$DDUMBVOL
+fi
+
+pwd | grep "bufferdisk"
+if [ $? -eq 0 ] ; then
+    NFSDATASTORENAME="BUFFERDISK_$ME"
+    NFSTARGET=`dirname $VMBACKUPTARGET`
+fi
+
+echo "" >> $LOG
+msg="`date` INF $0 startup"
+echo "$msg" | tee -a $LOG
+
+msg="`date` INF using NFSDATASTORENAME: $NFSDATASTORENAME and NFSTARGET: $NFSTARGET for mount cmd on ESXi Host."
+echo "$msg" | tee -a $LOG
+
+msg="Mounting this machine ($ME) as NFSTARGET on $VMHOST"
+create_nfs_link
+if [ ! $? -eq 0 ] ; then
+    echo "`date` $msg FAILED - EXIT" | tee -a $LOG
+    exit 1
+fi
+
+msg="Analysing directory structure"
+split_dir_name
+if [ ! $? -eq 0 ] ; then
+    echo "`date` $msg FAILED - EXIT" | tee -a $LOG
+    exit 1
+fi
+echo "`date` $msg SUCCESS" | tee -a $LOG
+
+msg="CREATE DIRECTORY $P2DS/$TDATASTORE/$P5"
+# if creation of directory fails, it already exists, we have to stop!
+$CMDL "mkdir $P2DS/$TDATASTORE/$P5"
+if [ ! $? -eq 0 ] ; then
+    echo "`date` $msg FAILED" | tee -a $LOG
+    remove_dir_after_error
+    exit 1
+fi
+echo "`date` $msg SUCCESS" | tee -a $LOG
+
+msg="COPY VMX FILE"
+echo $CMDL "cp /vmfs/volumes/$NFSDATASTORENAME/$P4/$P5/*.vmx $P2DS/$TDATASTORE/$P5/"
+$CMDL "cp /vmfs/volumes/$NFSDATASTORENAME/$P4/$P5/*.vmx $P2DS/$TDATASTORE/$P5/"
+if [ ! $? -eq 0 ] ; then
+    echo "`date` ERR $msg FAILED" | tee -a $LOG
+    remove_dir_after_error
+    exit 1
+fi
+echo "`date` $msg INF SUCCESS" | tee -a $LOG
+
+msg="Copy vmdk file "
+for fn in $( ls -1 *.vmdk )
+do
+    echo $fn | grep "flat." > /dev/null
+    if [ ! $? -eq 0 ] ; then
+	msg="RESTORE FILE: $fn"
+	echo "`date` $msg $fn" | tee -a $LOG
+	#echo $CMDL "/sbin/vmkfstools -i "\"/vmfs/volumes/$NFSDATASTORENAME/$P4/$P5/$fn\"" -a "\"lsilogic\"" -d \""thin\"" \"$P2DS/$TDATASTORE/$P5/$fn\""
+	$CMDL "/sbin/vmkfstools -i "\"/vmfs/volumes/$NFSDATASTORENAME/$P4/$P5/$fn\"" -a "\"lsilogic\"" -d \""thin\"" \"$P2DS/$TDATASTORE/$P5/$fn\"" | tee -a $LOG
+	if [ ! $? -eq 0 ] ; then
+	    echo "`date` ERR $msg $fn FAILED" | tee -a $LOG
+	    remove_dir_after_error
+	    exit 1
+	else
+	    echo "`date` INF $msg $fn SUCCESS" | tee -a $LOG
+	fi
+    fi
+done
+
+echo "`date` INF $0 EXIT" | tee -a $LOG

@@ -1,0 +1,116 @@
+#! /bin/bash
+# by k.deiss@it-userdesk.de
+# V 0.0.1.29.9.14
+# V 0.0.1.4.10.14
+# V 0.0.2.11.1.16 df -hl
+
+
+# measuring ddumbfs performance
+
+#don't edit from here
+
+source /opt/AmutaQ!/etc/AmutaQ!.conf
+
+#Targethd got from commandline?
+if [ ! -z "$1" ];then
+    TARGETHD=$1
+fi
+
+TMP="/tmp/reclaim.tmp"
+DDUMBPATH="/opt/AmutaQ!/ddumbfs"
+
+#this tmpfile holds the output of reclaim info
+TMP1="$DDUMBPATH/snip.tmp"
+
+#the log file
+LOG="/var/log/reclaim.log"
+
+#text output (in excel csv format)
+TXT="$DDUMBPATH/reclaim.txt"
+
+#where mkbackup saves its files
+MKFOLDER="/BACKUPS"
+
+
+##############script detection#########################
+LOCKFILE=/tmp/$(basename $0).lck
+#[ -f $LOCKFILE ] && { echo "$0 already running"; exit 1; }
+[ -f $LOCKFILE ] && { echo "`date` $0 already running" >> $LOG; exit 1; }
+
+del_lock()
+{
+    rm -f $LOCKFILE
+}
+
+trap "del_lock ; exit 1" 2 9 15
+echo $$ > $LOCKFILE
+##############script detection#########################
+
+
+
+echo `date` >>$LOG
+df -hl >$TMP
+#cat $TMP | grep "/dev/sdd1" >>$LOG
+cat $TMP | grep "/mnt/$TARGETHD" >>$LOG
+TMP2=`cat $TMP | grep $DDUMBVOL`
+
+if [ -z "$TMP2" ] ; then
+    echo "$DDUMBVOL not mounted!" >>$LOG
+    echo "" >>$LOG
+    echo "" >>$LOG
+    del_lock
+    exit 2
+else
+    echo $TMP2 >>$LOG
+fi
+
+SPACE=`du -h $DDUMBVOL | tail -n 1`
+echo "Disk usage measured with du: " $SPACE >>$LOG
+
+DFTEMP=`cat $TMP | grep "/dev/$TARGETHD"`
+#echo "DEBUG:==> $DFUSED"
+
+DFUSED=`echo "$DFTEMP"|cut -c30-36`
+#echo "DEBUG:==> $DFUSED"
+
+
+
+echo "`date --rfc-3339=seconds`, $SPACE,$DFUSED" >> $TXT
+chmod 666 $TXT
+
+
+echo `date` >$TMP1
+cat "${DDUMBVOL}/.ddumbfs/reclaim" >>$TMP1
+cat $TMP1 | grep "block_in_use" >>$LOG
+cat $TMP1 | grep "block_references" >>$LOG
+
+#echo `date` >>$LOG
+#cat /mnt/ddumbfs/.ddumbfs/stats >>$LOG
+#echo `date` >>$LOG
+#ls -la "/mnt/`tail -n 1 $RSYNC_LOG`" 
+
+FNAME="$MKFOLDER/`tail -n 1 $RSYNC_LOG`"
+SIZE=`ls -lh "$FNAME"|cut -f 5 -d " "`
+FNAME1=`basename "$FNAME"`
+FNAME2=`find $DDUMBVOL -type f -name "*${FNAME1}.*" -exec ls -lh {} \;`
+FNAME3=`find $DDUMBVOL -type f -name "*${FNAME1}.*" -exec ls {} \;`
+FNAME4=`basename "$FNAME3"`
+SIZE2=`echo $FNAME2|cut -f 5 -d " "`
+
+#echo "DEBUG:==>FNAME: $FNAME"
+
+if [ -f "$FNAME" ] ; then
+    echo "Source Path: $FNAME" >>$LOG
+    echo "Source: $SIZE $FNAME1" >>$LOG
+    echo "Target: $SIZE2 $FNAME4" >>$LOG
+else
+    echo "No copy in progress." >>$LOG
+fi
+
+echo `date` >>$LOG
+
+echo "" >>$LOG
+echo "" >>$LOG
+#echo "" >>$LOG
+#echo "" >>$LOG
+del_lock

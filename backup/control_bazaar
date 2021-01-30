@@ -1,0 +1,68 @@
+#! /bin/bash
+# monitoring bazaarcvb - in case of hang kills bazaarvcb
+# by k.deiss@it-userdesk.de
+# V 0.0.1
+# V 0.0.2 25.7.15 handle situation when bazaarvcb can't be killed!
+# V 0.0.3 14.2.20 minor change, less logging
+
+source /opt/AmutaQ!/etc/AmutaQ!.conf
+
+LOG="/var/log/control_bazaar.log"
+TMP="/tmp/$$.tmp"
+BAZAARLOGDIR="/opt/AmutaQ!/backup"
+BAZAARLOGFN="bazaarvcb.log"
+
+source /opt/AmutaQ!/lib/mail.lib
+
+##############script detection#########################
+LOCKFILE=/tmp/$(basename $0).lck
+[ -f $LOCKFILE ] && { echo "`date` INF $0 already running" >> $LOG; exit 1; }
+
+del_lock()
+{
+    #echo "`date` $0 WARNING external signal caught, exiting" >> $LOG
+    rm -f $LOCKFILE
+    rm -f $LOG2
+}
+
+trap "del_lock ; exit 1" 2 9 15
+echo $$ > $LOCKFILE
+##############script detection#########################
+
+
+
+PIDB=`pidof $BAZAARVCB`
+if [ -z $PIDB ];then
+#    echo "`date` Bazaar not running" 
+    del_lock
+    exit 0
+#else
+#    echo "`date` Bazaar running"
+fi
+
+
+RST=`find $BAZAARLOGDIR -type f -mmin "+59" -name $BAZAARLOGFN`
+if [ ! -z $RST ] ; then
+    echo "`date` Bazaar seems not to run - older 59 min - killing bazaarvcb!" >> $LOG
+    ls -la $BAZAARLOGDIR/$BAZAARLOGFN
+    killall -9 bazaarvcb >> $LOG
+    sleep 10
+    killall -9 bazaarvcb >> $LOG
+    sleep 10
+else
+    echo "`date` Bazaar log-file not old enough!"
+    del_lock
+    exit 0
+fi
+
+PIDB=`pidof $BAZAARVCB`
+if [ ! -z $PIDB ];then
+    echo "`date` ooops task still running - something went wrong!" >> $LOG
+    SUBJECT="`hostname` bazaarvcb hanging!"
+    TXTFILE=""
+    TXT="$SUBJECT \n\n${VERSION}\n\nNot able to kill hanging service.\n\nPlease restart this machine."
+    send_mail
+    sleep 1800
+fi
+
+del_lock

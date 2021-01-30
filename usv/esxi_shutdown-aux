@@ -1,0 +1,555 @@
+#! /bin/bash
+# ESXi 5.x host automated shutdown script 
+# by k.deiss@it-userdesk.de (base script https://github.com/sixdimensionalarray/esxidown)
+# V 0.0.1.22.10.14 initial release
+# V 0.0.1.22.10.14 mail support
+# V 0.0.2.29.10.14 compatible to esxi 5.0
+# V 0.0.3.06.06.17 parallel (quick) shutdown of vms
+# V 0.0.4.05.07.17 shutdown all controlled esxi hosts
+# V 0.0.5.06.11.19 ah: add USV name to mail output (if we have multiple USVs)
+#		   allow up to 30 events
+#		   put Events in own config-file
+# V 0.0.6.31.12.20 kd/ah bugfix detecting process already running
+
+#TODO: returncode is not sent back to script. Returncode is from sshpass
+#maybe following code can be used:
+#command >/tmp/tmp;echo $?;cat /tmp/tmp
+#returncode can be used from first line
+
+# in case of powerfail ups monitor is sending the time batteries can hold 
+# if this value is smaller than MINBATTERIE we shut down
+let MINBATTERY=150
+
+source /opt/AmutaQ!/etc/AmutaQ!.conf
+LOG="/var/log/esxi_shutdown.log"
+
+# whether we shut down this host
+# note this parm is set by commandline
+# LOCALSHUTDOWN=1
+
+# Don't shutdown myself (screen name of this machine in esxi host)
+# in case this machine is a vm
+ME="AmutaQ"
+
+# Variable to allow script testing, assuming the vim commands all work to issue shutdowns
+# can be "0" or "1"
+TEST=0
+
+# script waits WAIT_TRYS times, WAIT_TIME seconds each time
+# number of times to wait for a VM to shutdown cleanly before forcing power off.
+let WAIT_TRYS=10
+
+# how long to wait in seconds each time for a VM to shutdown.
+let WAIT_TIME=10
+
+# how long will the final script wait before it shuts down the ESXi Host
+# Note: It should be long enough to shut down ME (this machine) gracefully 
+let DELAY=60
+
+# wait this time vms shut down properly
+let MAXWAIT=600
+
+# The commandline to the ESXI host
+CMDL="sshpass -p "$VMPASSWORD" ssh -o StrictHostKeyChecking=no $VMUSER@$VMHOST"
+
+# The temp mailfile
+MAILFILE="/tmp/esxi_shutdown.tmp"
+
+# temp file
+TEMP="/tmp/esxi_shutdown0.tmp"
+
+# USV-Name for Mails
+USVNAME="USV"
+
+
+# ------ DON'T CHANGE BELOW THIS LINE ------
+
+##############script detection#########################
+LOCKFILE=/tmp/$(basename $0).lck
+
+if [ -f $LOCKFILE ] ; then
+    SPID=`cat $LOCKFILE`
+#    ps -e | grep $SPID >> /dev/null
+    ps -o cmd -p $SPID |grep `basename $0` >> /dev/null
+    if [ $? -eq 0 ] ; then
+	echo "`date` INF $0 already running"
+	exit 1
+    else
+	echo "`date` WAR $0 has lockfile but is not running!" >> $LOG
+    fi
+fi
+
+
+del_lock()
+{
+    echo "`date` $0 WARNING external signal caught, exiting" >> $LOG
+    rm -f $LOCKFILE
+}
+
+trap "del_lock ; exit 1" 2 9 15
+echo $$ > $LOCKFILE
+##############script detection#########################
+
+
+
+
+function is_int() 
+{ 
+return $(test "$@" -eq "$@" > /dev/null 2>&1); 
+}
+
+
+function taco()
+{
+    tail -n 40 $LOG | tac
+}
+
+
+function ana_log()
+{
+echo "" > $MAILFILE 
+let flag=0
+while read line
+do
+    echo $line | grep "start" > /dev/null
+    if [ $? -eq 0 ] ;then
+	echo $line >> $MAILFILE
+	break
+    else
+	echo $line >> $MAILFILE
+    fi
+done
+echo "`date` LOG OF SHUTDOWN" >> $MAILFILE 
+}
+
+
+validate_shutdown()
+{
+#vim-cmd vmsvc/power.getstate $SRVID | grep -i "off" > /dev/null 2<&1
+echo "Entering validate shutdown for $SRVID-$SRVNAME"
+ESXICMDRST=`$CMDL vim-cmd vmsvc/power.getstate $SRVID | grep -i "off"`
+STATUS=$?
+if [ ! -z "$ESXICMDRST" ] ; then
+    echo "Result of vim-cmd vmsvc/power.getstate $SRVID-$SRVNAME: $ESXICMDRST"
+fi
+if [ $STATUS -ne 0 ]; then
+    if [ $TRY -lt $WAIT_TRYS ]; then
+    # if the vm is not off, wait for it to shut down
+	TRY=$((TRY + 1))
+	echo "Waiting for guest VM ID $SRVID-$SRVNAME to shutdown (attempt #$TRY)..."
+	sleep $WAIT_TIME
+	validate_shutdown
+    else
+	# force power off and wait a little (you could use vmsvc/power.suspend here instead)
+	echo "Unable to gracefully shutdown guest VM ID $SRVID-$SRVNAME... forcing power off."
+	if [ $TEST -eq 0 ]; then
+	    #vim-cmd vmsvc/power.off $SRVID
+	    ESXICMDRST=`$CMDL vim-cmd vmsvc/power.off $SRVID`
+	    if [ ! -z "$ESXICMDRST" ] ; then
+		echo "Result of vim-cmd vmsvc/power.off $SRVID-$SRVNAME: $ESXICMDRST"
+	    fi
+	fi
+	sleep $WAIT_TIME
+    fi
+fi
+}
+
+
+function shutall()
+{
+source /opt/AmutaQ!/lib/mail.lib
+
+# these are the VM IDs to shutdown in the order specified
+# use the SSH shell, run "vim-cmd vmsvc/getallvms" to get ID numbers - machine name
+echo "" > $TEMP
+$CMDL vim-cmd vmsvc/getallvms >>$TEMP
+while read line
+do
+    vid=`echo $line|cut -f 1 -d " "`
+    vname=`echo $line|cut -f 2 -d " "`
+    if $(is_int $vid) && [ ! -z $vid ] ; then
+	if [ -z "$SERVERIDS" ];then
+	    SERVERIDS="$vid-$vname"
+	else
+	    SERVERIDS="$SERVERIDS $vid-$vname"
+	fi
+    fi
+done < $TEMP
+
+rm -f $TEMP
+
+if [ ! -z "$SERVERIDS" ] ; then
+    for i in $SERVERIDS
+    do
+	echo "Found machine with VID: $i"
+    done
+else
+    msg="ERR Can't run this script $0 against $VMHOST - no shutdown!!"
+    echo $msg
+
+    # this will prepare the LOGFILE file for $MAILFILE
+    taco  | ana_log
+
+    # now send out the mail
+    TXTFILE=$MAILFILE
+    SUBJECT="`hostname` $USVNAME Shutdownscript FAILURE!!! "
+    send_mail &
+    TXTFILE=""
+    SUBJECT=""
+    return 1
+fi
+
+# enter maintenance mode immediately
+#echo "Entering maintenance mode..."
+#if [ $TEST -eq 0 ]; then
+#    #esxcli system maintenanceMode set -e true -t 0 &
+#    ESXICMDRST=`$CMDL 'nohup esxcli system maintenanceMode set -e true -t 0 > /dev/null 2>&1 &'`
+#    if [ ! -z "$ESXICMDRST" ] ; then
+#	echo "Result of nohup esxcli system maintenanceMode set -e true -t 0 is: $ESXICMDRST"
+#    fi
+#fi
+
+mepid=`ps | grep $$`
+me=`echo $mepid | cut -f 4 -d " "`
+mepid=`echo $mepid | cut -f 1 -d " "`
+ps > $TEMP
+origtaskctr=`grep $me $TEMP| wc -l`
+echo "TASKS: Found $origtaskctr running instances of $me"
+
+let REBOOTME=0
+# read each line as a server ID and shutdown/poweroff
+for MSRVID in $SERVERIDS
+do
+    echo $MSRVID | grep $ME > /dev/null
+    if [ ! $? -eq 0 ] ; then
+        SRVID=`echo $MSRVID | cut -f 1 -d "-"`
+        SRVNAME=`echo $MSRVID | cut -f 2 -d "-"`
+
+	TRY=0
+	#vim-cmd vmsvc/power.getstate $SRVID | grep -i "off\|Suspended" > /dev/null 2<&1
+	ESXICMDRST=`$CMDL vim-cmd vmsvc/power.getstate $SRVID | grep -i "off\|Suspended"`
+	STATUS=$?
+
+	if [ ! -z "$ESXICMDRST" ] ; then
+	    echo "Result of vim-cmd vmsvc/power.getstate $SRVID: $ESXICMDRST"
+	fi
+
+	if [ $STATUS -ne 0 ]; then
+	    echo "Attempting shutdown of guest VM ID $SRVID..."
+	    if [ $TEST -eq 0 ]; then
+		ESXICMDRST=`$CMDL vim-cmd vmsvc/power.shutdown $SRVID`
+		STATUS=$?
+		
+		if [ ! -z "$ESXICMDRST" ] ; then
+		    echo "Result of vim-cmd vmsvc/power.shutdown $SRVID $SRVID: $ESXICMDRST"
+		fi
+		if [ $STATUS -ne 0 ]; then
+		    echo "ERR during attempted shutdown of guest VM ID $SRVID..."
+		fi
+	    fi
+	    validate_shutdown &
+	else
+	    echo "Guest VM ID $SRVID already off..."
+	fi
+    else
+	echo "Guest VM ID $MSRVID is my ID. Don't shut down now."
+	let REBOOTME=1
+    fi
+done
+
+let i=0
+
+let maxwaita=$MAXWAIT/10
+while [ $maxwaita -gt $i ]
+do
+    # echo "WAIT: $i $me $mepid"
+    sleep 10
+    ps > $TEMP
+    taskctr=`grep $me $TEMP| wc -l`
+    echo "TASKS: $taskctr runnig instance of $me"
+    let i=$i+1
+    if [ $taskctr -eq $origtaskctr ] ; then
+	echo "task control - assuming complete shutdown"
+	break
+    fi
+done 
+
+rm -f $TEMP
+
+# guest vm shutdown complete
+echo "Guest VM shutdown complete..."
+
+# create script in which we change immediatley maintannance mode back to standard mode
+# before ME is down we never see the service mode
+# so we write it to temporary commandfile which is execute later
+
+echo "Preparing shutdown of ESXi host with delay of $DELAY s."
+$CMDL echo "sleep $DELAY > /tmp/exitus.sh"
+$CMDL echo "poweroff >> /tmp/exitus.sh"
+echo "ESXi host ready for shutdown."
+
+
+# this will prepare LOG file $MAILFILE
+taco  | ana_log
+
+# now send out the mail
+TXTFILE=$MAILFILE
+SUBJECT="`hostname` $USVNAME Shutdown at `date`"
+send_mail &
+TXTFILE=""
+
+sleep 10
+# now execute the script and shutdown the ESXi host
+echo "Executing poweroff script on ESXi Host."
+if [ $TEST -eq 0 ]; then
+    $CMDL 'nohup sh /tmp/exitus.sh > /dev/null 2>&1 &'
+else
+    echo "TestMode: will run this script on ESXi Host."
+    $CMDL 'cat /tmp/exitus.sh'
+fi
+
+# shutdown me
+if [ $TEST -eq 0 ]; then
+#    if [ $REBOOTME -eq 1 ] && [ $LOCALSHUTDOWN -eq 1 ] ; then
+    if [ $LOCALSHUTDOWN -eq 1 ] ; then
+	echo "Shutting down myself (this host) now now..."
+	sleep 1
+	poweroff
+    else
+	echo "Will not shutdown myself. Note: If this machine runs on the same ESXi Host shutdown will fail."
+    fi
+fi
+}
+
+
+
+function logger()
+{
+while read line
+do
+    echo "`date` ID:$$ $line" | tee -a $LOG
+done
+}
+
+
+function send_msg()
+{
+EVENTID=$1
+ADDITIONALINFO=$2
+
+echo "`date` INF call to send_msg with parameter: $EVENTID / $ADDITIONALINFO" | tee -a $LOG
+source /opt/AmutaQ!/lib/mail.lib
+
+case "$EVENTID" in
+
+    Event0)
+    t4bat=`echo $ADDITIONALINFO |cut -f 1 -d "."`
+    let realshut=$t4bat-$MINBATTERY
+    TXT="${Event0}\nBattery can supply $t4bat minutes.\nExpected time to shutdown: $realshut minutes."
+    echo "`date` INF $TXT"
+    if [ $MINBATTERY -gt $t4bat ] ; then
+	echo "`date` INF Battery low - system is shuting down now!" | tee -a $LOG
+	shutall 2>&1 | logger
+    fi
+    ;;
+
+    Event1)
+    TXT=$Event1
+    ;;
+
+    Event2)
+    TXT=$Event2
+    ;;
+
+    Event3)
+    TXT=$Event3
+    ;;
+
+    Event4)
+    TXT=$Event4
+    ;;
+
+    Event5)
+    TXT=$Event5
+    ;;
+
+    Event6)
+    TXT=$Event6
+    ;;
+
+    Event7)
+    TXT=$Event7
+    ;;
+
+    Event8)
+    TXT=$Event8
+    ;;
+
+    Event9)
+    TXT=$Event9
+    ;;
+
+    Event10)
+    TXT=$Event10
+    ;;
+
+    Event11)
+    TXT=$Event11
+    ;;
+
+    Event12)
+    TXT=$Event12
+    ;;
+
+    Event13)
+    TXT=$Event13
+    ;;
+
+    Event14)
+    TXT=$Event14
+    ;;
+
+    Event15)
+    TXT=$Event15
+    ;;
+
+    Event16)
+    TXT=$Event16
+    ;;
+
+    Event17)
+    TXT=$Event17
+    ;;
+
+    Event18)
+    TXT=$Event18
+    ;;
+
+    Event18)
+    TXT=$Event18
+    ;;
+
+    Event19)
+    TXT=$Event19
+    ;;
+
+    Event20)
+    TXT=$Event20
+    ;;
+
+    Event21)
+    TXT=$Event21
+    ;;
+
+    Event22)
+    TXT=$Event22
+    ;;
+
+    Event23)
+    TXT=$Event23
+    ;;
+
+    Event24)
+    TXT=$Event24
+    ;;
+
+    Event25)
+    TXT=$Event25
+    ;;
+
+    Event26)
+    TXT=$Event26
+    ;;
+
+    Event27)
+    TXT=$Event27
+    ;;
+
+    Event28)
+    TXT=$Event28
+    ;;
+
+    Event29)
+    TXT=$Event29
+    ;;
+
+    Event30)
+    TXT=$Event30
+    ;;
+
+    *)
+    TXT="unknown Event >$1< received from USV!"
+esac
+
+# now send out the mail
+TXTFILE=""
+SUBJECT="`hostname` $USVNAME event $1 received at `date`"
+send_mail &
+TXT=""
+}
+
+
+
+##########################################################
+#               main script
+##########################################################
+
+#MODEL
+#SERVER
+#AUTONOMTIME
+
+source /opt/AmutaQ!/usv/events.cfg
+
+if [ -z $2 ] ;then
+    echo "`date` ERR $0 CONFIGFILE LOCALSHUTDOWN EVENTID ADDITIONALINFO" | tee -a $LOG
+    rm -f $LOCKFILE
+    exit 1
+fi
+
+if [ -z $3 ] ;then
+    echo "`date` ERR $0 CONFIGFILE LOCALSHUTDOWN EVENTID ADDITIONALINFO" | tee -a $LOG
+    rm -f $LOCKFILE
+    exit 1
+fi
+
+if [ -z $4 ] ;then
+    echo "`date` WAR no ADDITIONALINFO found" | tee -a $LOG
+#    rm -f $LOCKFILE
+#    exit 1
+fi
+
+if [ ! -f $1 ] ;then
+    echo "`date` WAR $0 CONFIGFILE NOT FOUND" | tee -a $LOG
+    rm -f $LOCKFILE
+    exit 2
+fi
+
+echo "`date` INF using configfile $1" | tee -a $LOG
+#source /opt/AmutaQ!/etc/AmutaQ!.conf.xxx
+source $1
+CMDL="sshpass -p "$VMPASSWORD" ssh -o StrictHostKeyChecking=no $VMUSER@$VMHOST"
+
+let LOCALSHUTDOWN=$2
+if [ $LOCALSHUTDOWN -eq 1 ];then
+    echo "`date` INF will shutdown myself in case of SHUTDOWN" | tee -a $LOG
+else
+    echo "`date` INF multihost config - no shutdown of myself" | tee -a $LOG
+fi
+
+SDMSG=$3
+ADDITIONALINFO=$4
+
+echo "" | tee -a $LOG
+echo "`date` INF start $0 $SDMSG" | tee -a $LOG
+
+if [ "$SDMSG" == "SHUTDOWN" ] ; then
+    echo "`date` INF System is shuting down now!" | tee -a $LOG
+    shutall 2>&1 | logger
+else
+    echo "`date` INF Event $SDMSG received from USV" | tee -a $LOG
+    send_msg "$SDMSG" "$ADDITIONALINFO" 2>&1 | logger
+fi
+
+echo "`date` INF finish $0" | tee -a $LOG
+echo "" | tee -a $LOG
+rm -f $LOCKFILE

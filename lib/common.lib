@@ -1,0 +1,59 @@
+#! /bin/bash
+# by k.deiss@it-userdesk.de
+# shared functions
+# V 0.0.1.10.1.16 initial release
+# V 0.0.2.10.5.17 enable ddumbfs over nfs 
+
+# check whether the ddumbfs is mounted and writeable.
+function check4ddmount
+{
+    #check for mounted ddumbfs
+    msg1="There is no valid target for the backup."
+    msg2="$DDUMBVOL not mounted - please attach Disk!"
+
+    mount | grep $DDUMBVOL >/dev/null
+    RST=$? #if 1 then not mounted
+    if [ ! $RST -eq 0 ] ; then
+        echo "`date` ERR $msg1 $msg2" >> $LOG
+        SUBJECT="`hostname` ERROR $msg1"
+        TXTFILE=""
+        TXT="$msg1 $msg2"
+        send_mail
+	touch $SIGNAL/switch
+	check_signal
+	sleep 1800 #lets wait 30 mins
+	return 1
+    fi
+
+    #check whether target is mounted !
+    if [ -f "$DDUMBVOL/NOT_MOUNTED" ] ; then
+        echo "`date` ERR $msg1 $msg2" >> $LOG
+        SUBJECT="`hostname` ERROR $msg1"
+        TXTFILE=""
+        TXT="$msg1 $msg2"
+        send_mail
+	touch $SIGNAL/switch
+	check_signal
+	sleep 1800 #lets wait 30 mins
+	return 1
+    fi
+
+    #check whether target is writeable!
+    #hotfix nfs
+    touch "$DDUMBVOL/date.txt"
+    chmod 666 "$DDUMBVOL/date.txt"
+    date > "$DDUMBVOL/date.txt"
+    if [ ! $? -eq 0 ] ; then
+        echo "`date` ERR $msg1 $msg2" >> $LOG
+        SUBJECT="`hostname` ERROR $msg1"
+        TXTFILE=""
+        TXT="$msg1 $msg2"
+        send_mail
+	touch $SIGNAL/switch
+	check_signal
+	sleep 1800 #lets wait 30 mins
+	return 1
+    fi
+return 0
+}
+

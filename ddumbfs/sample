@@ -1,0 +1,52 @@
+#! /bin/bash
+# by k.deiss@it-userdesk.de
+# V 0.0.1.1.1.17
+# V 0.0.2.31.12.20 kd/ah bugfix detecting process already running
+# sample script
+
+#don't edit from here
+
+source /opt/AmutaQ!/etc/AmutaQ!.conf
+source /opt/AmutaQ!/lib/discident.lib
+LOG=/var/log/sample.log
+
+# echo "`date` INF Start PID:$0 $$"
+
+function check4files
+{
+MT=`mount |grep ddumbfs|cut -f 1 -d " "`
+MT=`dirname $MT`
+MT=`dirname $MT`
+basename $MT
+}
+
+PHYS_DDUMBFS=`check4files`
+#trans-discnames $PHYS_DDUMBFS
+BACKUP2DDUMB="/opt/AmutaQ!/backup/backup2ddumb"
+
+
+# sleep 5
+
+function check4amu
+{
+LOCKFILE=/tmp/$(basename $BACKUP2DDUMB).lck
+if [ -f $LOCKFILE ] ; then
+    SPID=`cat $LOCKFILE`
+#    ps -e | grep $SPID >> /dev/null
+    ps -o cmd -p $SPID |grep `basename $0` >> /dev/null
+    if [ $? -eq 0 ] ; then
+	echo "`date` INF $BACKUP2DDUMB running with PID $SPID"
+	return 1
+    else
+	echo "" >> $LOG
+	echo "`date` WAR $0 has lockfile but is not running!"
+    fi
+else
+    echo "`date` INF $BACKUP2DDUMB not running."
+fi
+}
+
+
+#PROCID=`ps -xa | grep $BACKUP2DDUMB`
+#echo "PID:$PROCID"
+check4amu

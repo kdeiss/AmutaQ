@@ -1,0 +1,1 @@
+tail -f -n 500 bazaarvcb.log

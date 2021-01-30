@@ -1,0 +1,39 @@
+#! /bin/bash
+# V 0.0.1 3.5.14 create vmware-mount links
+# V 0.0.2.3.5.14 new folder structure
+# V 0.0.3.1.4.15 log file
+
+
+LOG=/tmp/set_link.log
+
+#ASYNCTARGET="/mnt/ddumbfs/bazaar"
+#VMBACKUPTARGET="/BACKUPS/bazaar" # The final target (backup from backup)
+
+NFSBUFFERVOL="/mnt/ddumbfs"
+NFSBUFFERDIR="$NFSBUFFERVOL/bazaar/"
+
+
+function sl()
+{
+echo "`date` INF `find $NFSBUFFERDIR -type f |grep ".rep" |wc -l` BACKUPS FOUND."|tee -a $LOG
+echo "" |tee -a
+
+for dir in $(find $NFSBUFFERDIR -type d -name "*[0-9]"); do
+    echo "`date` INF Found Backup to link: $dir" |tee -a  $LOG; 
+    ln -f -s /opt/AmutaQ!/vmware/mount-disks $dir/mount-disks
+    ln -f -s /opt/AmutaQ!/vmware/xrestoremanager.vmm $dir/XRestoreManager.vmm
+    ln -f -s /opt/AmutaQ!/vmware/umount-disks $dir/umount-disks
+
+    if [ $? -eq 0 ] ; then
+	echo "`date` INF link set" |tee -a  $LOG;
+    else
+	echo "`date` INF link already here" |tee -a  $LOG;
+    fi
+done
+echo "" |tee -a $LOG
+}
+
+
+echo "" >> $LOG
+echo "`date` INF START LINKING OF OLD BACKUPS" >> $LOG
+sl

@@ -1,0 +1,24 @@
+#! /bin/bash
+# by k.deiss@it-userdesk.de
+# V 0.0.1 29.9.14
+# make a single backup with bazaar (testfile)
+
+#don't edit from here
+
+source /opt/AmutaQ!/etc/AmutaQ!.conf
+
+mkdir -f $VMBACKUPTARGET 2>/dev/null
+
+for VMGUEST in $VMLIST
+do
+    echo "`date` connecting $VMHOST as $VMUSER for backup $VMGUEST ....."
+    echo ""
+    $BAZAARVCB queryvm -H $VMHOST -u $VMUSER -p $VMPASSWORD $VMGUEST
+    echo ""    
+    $BAZAARVCB backup -H $VMHOST -u $VMUSER -p $VMPASSWORD  --roll-out 1 $VMGUEST $VMBACKUPTARGET
+    RST=$?
+    echo "`date` finished $VMGUEST ($RST)"
+    echo ""
+done
+
+exit

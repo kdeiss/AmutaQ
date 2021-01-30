@@ -1,0 +1,121 @@
+#! /bin/bash
+# by k.deiss@it-userdesk.de
+# check whether hdds are ok (only avail. on HP platforms!)
+# crontab ==> 0 17 * * * /opt/AmutaQ!/tools/check_hardware
+# V 0.0.1 kd 11.10.19 initial release
+# V 0.0.2 ah 27.05.20 add error if no controller detected(eg. on updated machines)
+
+
+#don't edit from here
+
+
+source /opt/AmutaQ!/etc/AmutaQ!.conf
+source /opt/AmutaQ!/lib/cfgedit.lib
+
+LOG=$RSYNC_LOG
+BASENM="check_hardware"
+BASEPATH="/opt/AmutaQ!/$BASENM"
+LAMWLOG="/var/log//$BASENM.log"
+TMPFN="/tmp/$BASENM.tmp"
+source /opt/AmutaQ!/lib/mail.lib
+source /opt/AmutaQ!/lib/discident.lib
+
+
+
+# The commandline to the ESXI host
+CMDL="sshpass -p "$VMPASSWORD" ssh -o StrictHostKeyChecking=no $VMUSER@$VMHOST"
+
+
+check_hardware()
+{
+P1=$1
+let DODIF=0
+
+CMDL="sshpass -p "$VMPASSWORD" ssh -o StrictHostKeyChecking=no $VMUSER@$VMHOST"
+
+if [ -f "/tmp/$P1.hwr" ];then
+    cp "/tmp/$P1.hwr" "/tmp/$P1.org"
+    # echo "`date` INF old config found."
+    let DODIF=1
+fi
+
+echo "`date` INF checking host:$P1" >> $LOG
+# try it for esxi > 5.0
+rm -f "/tmp/$P1.hwr"
+$CMDL "/opt/hp/hpssacli/bin/hpssacli ctrl all show config" 2>>"/tmp/$P1.hwr" >>"/tmp/$P1.hwr"
+
+cat "/tmp/$P1.hwr" | grep "not found\|Error: No controllers detected" >/dev/null
+if [ $? -eq 0 ] ; then
+    # try it for esxi < 6.5
+    rm -f "/tmp/$P1.hwr"
+    $CMDL "/opt/smartstorageadmin/ssacli/bin/ssacli ctrl all show config" 2>>"/tmp/$P1.hwr" >>"/tmp/$P1.hwr"
+fi
+
+cat "/tmp/$P1.hwr" | grep "not found\|Error: No controllers detected" >/dev/null
+if [ $? -eq 0 ] ; then
+    # try it for esxi > 5.0
+    rm -f "/tmp/$P1.hwr"
+    $CMDL "/opt/hp/hpacucli/bin/hpacucli ctrl all show config" 2>>"/tmp/$P1.hwr" >>"/tmp/$P1.hwr"
+fi
+
+cat "/tmp/$P1.hwr" | grep "not found\|Error: No controllers detected" >/dev/null
+if [ $? -eq 0 ] ; then
+    echo "`date` WAR HDD check not available on host $VMHOST"
+    return 1
+fi
+
+
+if [ $DODIF -eq 1 ];then
+    SUBJECT="WARNING: `hostname` $P1 CHANGE ON HDD STATE DETECTED!"
+    echo -e "`date` $SUBJECT.\n"> $TMPFN
+    diff "/tmp/$P1.hwr" "/tmp/$P1.org" >> $TMPFN
+    RST=$?
+    if [ $RST -eq 0 ];then
+        echo "`date` INF host $P1 no hdd issue found." >> $LOG
+        rm -f $TMPFN
+    else
+        echo "`date` WAR hdd issue found on $P1. Sending out mail." >> $LOG
+        echo -e "\n">> $TMPFN
+        echo -e "\n">> $TMPFN
+        echo "FILE: `ls -la /tmp/$P1.hwr`" >> $TMPFN
+        cat "/tmp/$P1.hwr" >> $TMPFN
+        echo -e "\n">> $TMPFN
+        echo -e "\n">> $TMPFN
+        echo "FILE: `ls -la /tmp/$P1.org`" >> $TMPFN
+        cat "/tmp/$P1.org" >> $TMPFN
+        TXTFILE=$TMPFN
+        send_mail
+        #cat $TMPFN
+        rm -f $TMPFN
+        TXTFILE=""
+    fi
+fi
+}
+
+##########################################################
+#                       MAIN
+##########################################################
+
+
+echo "`date` INF try to check HDD state." >> $LOG
+if [ -f /opt/AmutaQ!/etc/AmutaQ!.conf.0 ];then
+    let f=0
+    while [ $f -lt 100 ];do
+        if [ -f /opt/AmutaQ!/etc/AmutaQ!.conf.$f ];then
+            source /opt/AmutaQ!/etc/AmutaQ!.conf.$f
+            check_hardware $VMHOST
+        else
+            break
+        fi
+        let f=$f+1
+    done
+else
+    source /opt/AmutaQ!/etc/AmutaQ!.conf
+    check_hardware $VMHOST
+fi
+
+
+rm -f $LOCKFILE
+exit $RST
+
+

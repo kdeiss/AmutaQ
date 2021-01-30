@@ -1,0 +1,69 @@
+#! /bin/bash
+# save cpu stats to file
+# by k.deiss@it-userdesk.de
+# V 0.0.1.2.1.16
+# V 0.0.2.28.3.17 adapted to different top output
+
+statfn="/tmp/cpustat.txt"
+tmp="/tmp/$$.tmp"
+
+let tctr=8
+
+let lctr=0
+let user=0
+let sys=0
+let nice=0
+let idle=0
+let wait=0
+
+#set -x
+
+SEARCH="Cpu(s)"
+TOPOUTPUT=`top -b -n 1`
+
+echo $TOPOUTPUT | grep $SEARCH
+if [ ! $? -eq 0 ] ; then
+    SEARCH="CPU(s)"
+    echo $TOPOUTPUT | grep $SEARCH >/dev/null
+    if [ ! $? -eq 0 ] ; then
+        echo "ERR Unknown output from top"
+        exit 1
+    fi
+fi
+
+date > $tmp
+#%Cpu(s): 14,5 us,  6,8 sy,  0,0 ni, 66,1 id, 11,4 wa,  1,2 hi,  0,0 si,  0,0 st
+top -b -n $tctr | grep $SEARCH | awk '{printf $2 " ";printf $4 " ";printf $6 " ";printf $8 " ";print $10 }' >> $tmp
+
+while read line 
+do
+    #die ersten zwei zeilen skippen
+    if [ $lctr -gt 1 ] ;then
+	#echo $line
+	let user=$user+`echo $line | awk '{printf $1}'`
+	let sys=$sys+`echo $line | awk '{printf $2}'`
+	let nice=$nice+`echo $line | awk '{printf $3}'`
+	let idle=$idle+`echo $line | awk '{printf $4}'`
+	let wait=$wait+`echo $line | awk '{printf $5}'`
+    fi
+    let lctr=$lctr+1
+done < $tmp
+
+
+let lctr=$lctr-2
+
+let user=$user/$lctr
+let sys=$sys/$lctr
+let nice=$nice/$lctr
+let idle=$idle/$lctr
+let wait=$wait/$lctr
+let total=100-$idle
+
+if [ -f $statfn ] ; then
+    echo "$total $user $sys $nice $idle $wait `date`" >> $statfn
+else
+    echo "cpu-total user sys nice idle wait date" > $statfn
+    echo "$total $user $sys $nice $idle $wait `date`" >> $statfn
+fi
+
+rm $tmp
