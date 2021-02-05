@@ -83,6 +83,13 @@ Das AmutaQ!-Paket und das AmutaQ!-Install-Paket müssen nun entpackt werden:
 ```
 tar xvf AmutaQ![-install].tgz -C /
 ```
+
+Um die Dateien aus dem GIT zu laden sind folgende Befehle nötig:
+```
+cd /opt
+git clone https://github.com/kdeiss/AmutaQ-installer.git AmutaQ\!-install
+git clone https://github.com/kdeiss/AmutaQ.git AmutaQ\!
+```
 #### AmutaQ!-Install
 Nun ist das install-Skript auszuführen.
 ```
