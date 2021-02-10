@@ -1,6 +1,7 @@
 #! /bin/bash
 # by k.deiss@it-userdesk.de
 # V 0.0.1.16.5.17
+# V 0.0.2.25.11.20 Fix for using nfs4
 # detect the filesystem which is underlaying ddumbfs
 
 
@@ -17,6 +18,9 @@ if [ ! -z $FILESYS ] ; then
     #echo $FILESYS
     FILESYS=`mount | grep "$FILESYS "`
     FILESYS=`echo $FILESYS | cut -f 5 -d " "`
+    if [ "$FILESYS" == "nfs4" ]; then 
+	FILESYS="nfs"
+    fi
     #echo $FILESYS
     echo "`date` INF type of underlying filesystem is $FILESYS"
 
