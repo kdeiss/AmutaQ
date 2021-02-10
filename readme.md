@@ -86,6 +86,7 @@ tar xvf AmutaQ![-install].tgz -C /
 
 Um die Dateien aus dem GIT zu laden sind folgende Befehle nötig:
 ```
+apt install git
 cd /opt
 git clone https://github.com/kdeiss/AmutaQ-installer.git AmutaQ\!-install
 git clone https://github.com/kdeiss/AmutaQ.git AmutaQ\!
