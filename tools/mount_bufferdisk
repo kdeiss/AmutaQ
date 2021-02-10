@@ -1,10 +1,9 @@
 #! /bin/bash
 # decode and mount bufferdisk
 # V 0.0.1.12.9.19 luks beta
+# V 0.0.2.10.12.20 restart NFS-Server after all
 
 UUID=`cat /etc/crypttab |grep "bufferdisk " | cut -d= -f2 | cut -d" " -f1`
 cryptsetup luksOpen --disable-keyring /dev/disk/by-uuid/$UUID bufferdisk
 mount /mnt/bufferdisk
-#cryptsetup luksOpen /opt/AmutaQ!/crypt_indexfiles indexfiles --key-file=/mnt/bufferdisk/.crypt/key_indexfiles
-#cryptdisks_start indexfiles
-#mount /opt/AmutaQ!/indexfiles
+service nfs-kernel-server restart

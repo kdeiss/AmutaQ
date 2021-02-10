@@ -11,7 +11,7 @@ let MAXFS=3000000
 #echo MAXFS $MAXFS
 
 LOGLIST="$RSYNC_LOG $ASYNC_LOG /var/log/mount_fs.log /var/log/reclaim.log /var/log/control_bazaar.log /var/log/cpu-stat-log /var/log/guest_control.log /var/log/syncftp.log /var/log/xrdp.log /var/log/dauerbackup.log"
-LOGLIST="/tmp/monitorix.1"
+#LOGLIST="/tmp/monitorix.0"
 
 tmp0="/tmp/lr0"
 tmp1="/tmp/lr1"
@@ -22,15 +22,15 @@ do
     #get filesize 
     if [ -f $FN ];then
 	MFS=$(ls -l $FN | tr -s " " | cut -d " " -f 5)
-	#echo "MFS: $MFS"
+#	echo "MFS: $MFS"
 	if [ $MFS -gt $MAXFS ];then
 	    DT=`date +"%d_%b_%y_%H%M"`
 	    NEWFN="${FN}_${DT}.gz"
 
 	    # let a part of the file inside the log
 	    lanz=`wc $FN | cut -f 3 -d " "`
-	    TOZIP=$(($lanz/10*9))
-	    STAY=$(($lanz/10))
+	    let TOZIP=($lanz/10)*9
+	    let STAY=$lanz-$TOZIP
 
 	    tail --lines=$STAY $FN > $tmp0
 	    head --lines=$TOZIP $FN > $tmp1
