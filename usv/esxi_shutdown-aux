@@ -132,6 +132,11 @@ STATUS=$?
 if [ ! -z "$ESXICMDRST" ] ; then
     echo "Result of vim-cmd vmsvc/power.getstate $SRVID-$SRVNAME: $ESXICMDRST"
 fi
+if [ $TEST -ne 0 ]; then
+	echo "Testmode: Skipping validate Shutdown"
+	STATUS=0
+fi
+
 if [ $STATUS -ne 0 ]; then
     if [ $TRY -lt $WAIT_TRYS ]; then
     # if the vm is not off, wait for it to shut down
