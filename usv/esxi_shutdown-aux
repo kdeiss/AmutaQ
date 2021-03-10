@@ -10,6 +10,9 @@
 #		   allow up to 30 events
 #		   put Events in own config-file
 # V 0.0.6.31.12.20 kd/ah bugfix detecting process already running
+# V 0.0.7.10.03.21 ah: Optimize Testmode
+#                  bugfix on counting tasks
+
 
 #TODO: returncode is not sent back to script. Returncode is from sshpass
 #maybe following code can be used:
@@ -244,7 +247,7 @@ do
 	    if [ $TEST -eq 0 ]; then
 		ESXICMDRST=`$CMDL vim-cmd vmsvc/power.shutdown $SRVID`
 		STATUS=$?
-		
+
 		if [ ! -z "$ESXICMDRST" ] ; then
 		    echo "Result of vim-cmd vmsvc/power.shutdown $SRVID $SRVID: $ESXICMDRST"
 		fi
@@ -273,7 +276,7 @@ do
     taskctr=`grep $me $TEMP| wc -l`
     echo "TASKS: $taskctr runnig instance of $me"
     let i=$i+1
-    if [ $taskctr -eq $origtaskctr ] ; then
+    if [ $taskctr -le $origtaskctr ] ; then
 	echo "task control - assuming complete shutdown"
 	break
     fi
