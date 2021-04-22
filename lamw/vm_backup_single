@@ -11,6 +11,7 @@
 # V 0.0.6.29.4.20 kd slow nfs drives workaround (check_conf)
 # V 0.0.7.22.11.20 kd #HOTFIX 11/20 there seems to be no statusfile! MAXTRIESLAM
 # V 0.0.8.29.12.20 kd/ah bugfix detecting process already running / remove LOCKFILE on exit
+# V 0.0.9.22.04.21 ah also find Warn-Statusfile when idependent VMDKs are used
 
 
 #don't edit from here
@@ -338,6 +339,10 @@ if [ -d "$LOCAL_VM_BACKUP_VOLUME/$VMGUEST/$VMGUEST-$newdir" ] ; then
     fi
     if [ -f "$LOCAL_VM_BACKUP_VOLUME/$VMGUEST/$VMGUEST-$newdir/STATUS.ok" ] ; then
 	echo "`date` INF LAMW status.ok ==> `cat $LOCAL_VM_BACKUP_VOLUME/$VMGUEST/$VMGUEST-$newdir/STATUS.ok`"
+	return 0
+    fi
+    if [ -f "$LOCAL_VM_BACKUP_VOLUME/$VMGUEST/$VMGUEST-$newdir/STATUS.warn" ] ; then
+	echo "`date` INF LAMW status.warn ==> `cat $LOCAL_VM_BACKUP_VOLUME/$VMGUEST/$VMGUEST-$newdir/STATUS.warn`"
 	return 0
     #HOTFIX 11/20 there seems to be no statusfile!
     else
