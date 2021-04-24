@@ -7,6 +7,7 @@
 # V 0.0.4.3.10.19 kd replacing bazaarvcb reporting tool with a simple script
 # V 0.0.5.5.10.19 kd bugfix nfs
 # V 0.0.6.12.11.20 ah add failure info on CRC-Failure
+# V 0.0.7 24.04.21 ah support for independent disks
 
 #don't edit from here
 
@@ -75,8 +76,12 @@ do
 	if [ -f $directory/$fn/STATUS.ok ];then
 	    STATUS="LAMW OK"
 	else
-	    if [ -f $directory/$fn/STATUS.error ];then
-		STATUS="LAMW ERR"
+	    if [ -f $directory/$fn/STATUS.warn ];then
+		STATUS="LAMW OK (independent disks)"
+	    else
+		if [ -f $directory/$fn/STATUS.error ];then
+		    STATUS="LAMW ERR"
+		fi
 	    fi
 	fi
     fi
