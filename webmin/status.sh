@@ -11,6 +11,7 @@
 # V 0.0.8.5.10.19 ah give info if backup is finished or not
 # V 0.0.6.24.11.19 ah show last backup-device, when backup is finished
 # V 0.0.7.14.12.19 ah filter commented(#) lines from fstab and crypttab
+# V 0.0.8.26.8.21  ah also try to close crypt after umount
 
 BEFOREDEVICE="/tmp/last_backup_vol"
 # don't edit from here
@@ -47,7 +48,28 @@ do
 	    	    echo "HDD `trans-discnames $i` could be removed - but is currently mounted."
 		    echo "try to umount `trans-discnames $i` ......."
 		    umount /mnt/$i
-		    sleep 1
+		    sleep 2
+		#luks: close crypting when crypted
+		    opencount=$(dmsetup info -c --noheadings -o open "$i" 2>/dev/null || true)
+		    if [ "$opencount" ]; then
+		#  echo Open $opencount | tee -a $LOG
+			let wctr=0
+			while [ "$opencount" != "0" ]
+			do
+			    let wctr=$wctr+1
+			    umount /mnt/$i >/dev/null
+			    if [ $wctr -gt 10 ] ; then
+			#abort with error
+				echo "can't umount $i."
+        			break
+			    fi
+			    sleep 2
+			    opencount=$(dmsetup info -c --noheadings -o open "$i" 2>/dev/null || true)
+			done
+			#stop crypt
+			cryptdisks_stop $i
+		    fi
+
 		    CURCHKDSK=`mount | grep /mnt/$i`
 		    if [ -z "$CURCHKDSK" ];then
 			echo "HDD `trans-discnames $i` could be removed."
