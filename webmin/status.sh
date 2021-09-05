@@ -42,8 +42,15 @@ do
 	    else
 		CURCHKDSK=`mount | grep /mnt/$i`
 		if [ -z "$CURCHKDSK" ];then
-		    echo "HDD `trans-discnames $i` could be removed."
-		    let UMOUNT=0
+		    dmsetup status $i 2>/dev/null>/dev/null
+		    if [ $? -gt 0 ] ; then
+			echo "HDD `trans-discnames $i` could be removed."
+			let UMOUNT=0
+		    else		#Disc is not mounted but crypt is not closed
+                        cryptdisks_stop $i
+			echo "HDD `trans-discnames $i` could be removed (crypted)."
+			let UMOUNT=0
+		    fi
 		else
 	    	    echo "HDD `trans-discnames $i` could be removed - but is currently mounted."
 		    echo "try to umount `trans-discnames $i` ......."

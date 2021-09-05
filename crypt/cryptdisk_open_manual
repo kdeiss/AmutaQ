@@ -8,7 +8,7 @@ if [ -f /etc/crypttab ]; then  # only try cryptopen if crypt is used
         echo "No Parameter given. Usage: cryptdisk_open_manual diskname (eg. sdc1)"
         exit 1
     fi
-    UUID=`cat /etc/crypttab |grep "$1 " | cut -d= -f2 | cut -d" " -f1`
+    UUID=`cat /etc/crypttab |grep -v "#" |grep "$1 " | cut -d= -f2 | cut -d" " -f1`
     if [ ! -b /dev/disk/by-uuid/$UUID ]; then
         echo "ERROR: $1 is not a block-Device. Give the name of the Device eg. \"sdc1\""
         exit 1
