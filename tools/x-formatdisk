@@ -468,7 +468,7 @@ sleep 1
 echo "Formatting /dev/${DISKRST}1 ..."
 echo 75
 #use mapper for luks
-mkfs -t $FILESYSTEM /dev$MAPPER/${DISKRST}1 2>>$TEMPFILE2 >>$TEMPFILE2
+mkfs -F -t $FILESYSTEM /dev$MAPPER/${DISKRST}1 2>>$TEMPFILE2 >>$TEMPFILE2
 if [ ! $? -eq 0 ];then
     zenity --error --text "Error during formating $DSKRST"
     echo 100
