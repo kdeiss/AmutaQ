@@ -1,0 +1,25 @@
+#! /bin/bash
+# create Backup of LUKS-header
+# V 0.0.1.12.11.21 ah: initial release
+
+if [ -f /etc/crypttab ]; then  # only try if crypt is used
+    if [ -z $1 ]; then
+        echo "No Parameter given. Usage: $0 diskname (eg. sdc1)"
+        exit 1
+    fi
+    UUID=`cat /etc/crypttab |grep -v "#" |grep "$1 " | cut -d= -f2 | cut -d" " -f1`
+    if [ ! -b /dev/disk/by-uuid/$UUID ]; then
+	echo "ERROR: $1 not found. Maybe not connected?"
+	exit 1
+    fi
+    cryptsetup luksHeaderBackup /dev/disk/by-uuid/$UUID --header-backup-file ./$1_header_backup
+else
+	echo "ERROR: No crypttab found. Is crypt used??"
+	exit 1
+fi
+
+if [ $? -eq 0 ]; then
+    echo "Header backup successful. Store at a safe place!"
+else
+    echo "Something went wrong. Please contact your Administrator"
+fi

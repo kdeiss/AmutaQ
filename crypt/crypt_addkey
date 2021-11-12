@@ -1,7 +1,8 @@
 #! /bin/bash
 # add an additional manual Key to crypted USB-Disk
 # V 0.0.1.25.09.20 ah: initial release
-# V 0.0.2.26.11.29 ah: bugfixing
+# V 0.0.2.26.11.20 ah: bugfixing
+# V 0.0.3.12.11.21 ah: better error message
 
 if [ -f /etc/crypttab ]; then  # only try cryptopen if crypt is used
     if [ -z $1 ]; then
@@ -10,7 +11,7 @@ if [ -f /etc/crypttab ]; then  # only try cryptopen if crypt is used
     fi
     UUID=`cat /etc/crypttab |grep -v "#" |grep "$1 " | cut -d= -f2 | cut -d" " -f1`
     if [ ! -b /dev/disk/by-uuid/$UUID ]; then
-	echo "ERROR: $1 is not a block-Device. Give the name of the Device eg. \"sdc1\""
+	echo "ERROR: $1 not found. Maybe not connected?"
 	exit 1
     fi
     if [ -f /mnt/bufferdisk/.crypt/key_$1 ]; then  # use cryptkey-file if available

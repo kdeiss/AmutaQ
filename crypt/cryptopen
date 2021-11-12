@@ -1,7 +1,0 @@
-#! /bin/bash
-# open crypted device given by commandline
-# V 0.0.1.x.x.x initial version
-
-echo "In arbeit"
-TARGETHD=$1
-#cryptdisks_start $TARGETHD 2> /dev/null > /dev/null
