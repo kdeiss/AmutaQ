@@ -1,0 +1,47 @@
+#! /bin/bash
+# by k.deiss@it-userdesk.de
+# wrapper for call to speedtest
+# V 0.0.1.27.9.20
+
+
+source /opt/AmutaQ!/etc/AmutaQ!.conf
+LOG=/mnt/speedtest.log
+
+##############script detection#########################
+LOCKFILE=/tmp/$(basename $0).lck
+#[ -f $LOCKFILE ] && { echo "`date` INF $0 already running" >> $LOG; exit 1; }
+#[ -f $LOCKFILE ] && { exit 1; }
+
+if [ -f $LOCKFILE ] ; then
+    SPID=`cat $LOCKFILE`
+    ps -e | grep $SPID >> /dev/null
+    if [ $? -eq 0 ] ; then
+        # echo "`date` INF $0 already running"
+        exit 1
+    else
+        echo "`date` WAR $0 has lockfile but is not running!" >> $LOG
+    fi
+fi
+
+
+del_lock()
+{
+    echo "`date` $0 WARNING external signal caught, exiting" >> $LOG
+    rm -f $LOCKFILE
+}
+
+trap "del_lock ; exit 1" 2 9 15
+echo $$ > $LOCKFILE
+##############script detection#########################
+
+
+
+let lctr=0
+$0-aux 2>&1 | while read line
+do
+    echo "$line" >>$LOG
+done
+
+
+rm -f $LOCKFILE
+

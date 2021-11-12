@@ -1,0 +1,64 @@
+#! /bin/bash
+
+# by k.deiss@it-userdesk.de
+# hdd speedtest
+# mount all usb disks, write 1GB measure time
+# V 0.0.1.17.9.20
+
+MYVERSION="V 0.0.1.17.9.20"
+
+BASEDIR="/opt/AmutaQ!"
+LOG=/var/log/speedtest.log
+ERRLOG=$LOG
+FNAME="speedtest"
+BACKUPDIR="$BASEDIR/sysbackup"
+
+source /opt/AmutaQ!/etc/AmutaQ!.conf
+source /opt/AmutaQ!/lib/mail.lib
+
+echo "`date` INF $0 startup."
+#DDDEVICELIST="sdc1 sdd1 sde1 sdg1"
+
+for i in $DDDEVICELIST
+do
+    #echo "i: $i"
+    df -h | grep "/mnt/$i"
+done
+
+for f in $DDDEVICELIST
+do
+    echo ""
+    echo "Check $f"
+    disk=$f
+    mpoint="/mnt/$disk"
+
+    mount | grep $mpoint >/dev/null
+    if [ ! $? -eq 0 ] ;then
+        mount $mpoint
+    else
+        echo "`date` INF $mpoint already mounted."
+    fi
+
+    mount | grep $mpoint >/dev/null
+    if [ ! $? -eq 0 ] ;then
+        echo "`date` WAR mount $mpoint failed."
+    else
+        if [ -f "$mpoint/NOT_MOUNTED" ];then
+            echo "`date` WAR $mpoint no ddumbfs mountpoint"
+        else
+            echo "`date` INF $mpoint MOUNTED - OK. Starting dd"
+            dd if=/dev/zero of=$mpoint/speed-testfile bs=20M count=1 oflag=direct 2>/dev/null
+            sleep 1
+            dd if=/dev/zero of=$mpoint/speed-testfile bs=1G count=1 oflag=direct #status=progress
+            echo "`date` INF dd done"
+            umount $mpoint 2>/dev/null
+        fi
+    fi
+done
+
+echo "`date` INF $0 terminate."
+echo ""
+echo ""
+echo ""
+
+
