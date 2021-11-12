@@ -10,8 +10,7 @@ let MAXFS=3000000
 
 #echo MAXFS $MAXFS
 
-LOGLIST="$RSYNC_LOG $ASYNC_LOG /var/log/mount_fs.log /var/log/reclaim.log /var/log/control_bazaar.log /var/log/cpu-stat-log /var/log/guest_control.log /var/log/syncftp.log /var/log/xrdp.log /var/log/dauerbackup.log"
-#LOGLIST="/tmp/monitorix.0"
+LOGLIST="$RSYNC_LOG $ASYNC_LOG /var/log/lamw.log /var/log/control_bazaar.log /var/log/control_lamw.log /var/log/restore.log /var/log/vmstate.log /var/log/mount_fs.log /var/log/reclaim.log /var/log/migrate_fs.log /var/log/check_fs.log /var/log/esxi_shutdown.log /var/log/vm_restore.log /var/log/guest_control.log /var/log/xmount.log /var/log/startstop_handler.log /var/log/snapshot_handler.log /var/log/ghettowrap.log /var/log/syncftp.log /var/log/dauerbackup.log /var/log/cpu-stat-log /var/log/amu_update.log"
 
 tmp0="/tmp/lr0"
 tmp1="/tmp/lr1"
