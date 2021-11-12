@@ -12,6 +12,8 @@
 # V 0.0.2.15.6.20 ah: add support for direct attached USB-DISK, bugfixing
 # V 0.0.3.21.9.20 ah update fdisk-grep for Mint 20
 # V 0.0.4.27.11.20 ah fix: fdisk uses decimal . or , in different versions
+# V 0.0.5.02.11.21 ah: log recreate of ddumbfs on disk
+
 
 TARGET=$1
 DDUMBSIZE=80
@@ -88,4 +90,5 @@ chmod 777 $TARGET/l0/ddumbfs
 mkddumbfs -B 64k -i $IDIR/$UUID.idx -s $dsize $TARGET/l0/ddumbfs
 echo -n "Copy Indexfile to disk: "
 cp --preserve=timestamps "$IDIR/$UUID.idx" "$TARGET/l0/ddumbfs/"
+echo "`date` $0" >> $TARGET/reinit.log
 echo Finished!
