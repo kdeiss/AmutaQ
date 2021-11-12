@@ -1,0 +1,13 @@
+#! /bin/bash
+# by k.deiss@it-userdesk.de
+# V 0.0.1 8.11.21
+# this is just a sample call to the consolidate_disk script
+# use this for fixed calls via cron etc
+
+VM2CONSOLIDATE="Windows_SBS_2011"
+LOG="/var/log/consolidate-$VM2CONSOLIDATE.log"
+
+echo "`date` INF $0 start consolidation $VM2CONSOLIDATE" >> $LOG
+/opt/AmutaQ!/tools/vm_consolidate_disk $VM2CONSOLIDATE >> $LOG
+echo "`date` INF $0 finished consolidation $VM2CONSOLIDATE" >> $LOG
+

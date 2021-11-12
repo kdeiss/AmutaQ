@@ -1,0 +1,187 @@
+#! /bin/bash
+# by k.deiss@it-userdesk.de
+# search for attached delta files
+# V 0.0.1.9.11.21 initial release
+# V 0.0.2.10.11.21 grep expression modified
+# V 0.0.3.10.11.21 blacklist feature
+
+source /opt/AmutaQ!/etc/AmutaQ!.conf
+LOG="/var/log/vmstate.log"
+
+# send out mail 1=yes
+# can be "0" or "1"
+let MAILSEND=0
+
+
+# The commandline to the ESXI host
+CMDL="/usr/bin/sshpass -p "$VMPASSWORD" ssh -o StrictHostKeyChecking=no $VMUSER@$VMHOST"
+
+# The temp mailfile
+MAILFILE="/tmp/list-vmstate.tmp"
+
+# temp file
+TEMP="/tmp/list-vmstate_00.tmp"
+TEMP1="/tmp/list-vmstate_01.tmp"
+
+# prepare log dir
+LFN="/opt/AmutaQ!/log/`basename $LOG`"
+if [ ! -L "$LFN" ];then
+    ln -s $LOG $LFN
+fi
+
+
+# ------ DON'T CHANGE BELOW THIS LINE ------
+
+##############script detection#########################
+LOCKFILE=/tmp/$(basename $0).lck
+
+if [ -f $LOCKFILE ] ; then
+    SPID=`cat $LOCKFILE`
+    ps -e | grep $SPID >> /dev/null
+    if [ $? -eq 0 ] ; then
+        echo "`date` INF $0 already running"
+        exit 1
+    else
+        echo "`date` WAR $0 has lockfile but is not running!" >> $LOG
+    fi
+fi
+
+
+del_lock()
+{
+    echo "`date` $0 WARNING external signal caught, exiting" >> $LOG
+    rm -f $LOCKFILE
+}
+
+trap "del_lock ; exit 1" 2 9 15
+echo $$ > $LOCKFILE
+##############script detection#########################
+
+source /opt/AmutaQ!/lib/mail.lib
+
+function is_int()
+{
+return $(test "$@" -eq "$@" > /dev/null 2>&1);
+}
+
+
+function listall()
+{
+echo "" > $TEMP
+echo "" > $TEMP1
+CMDL="/usr/bin/sshpass -p "$VMPASSWORD" ssh -o StrictHostKeyChecking=no $VMUSER@$VMHOST"
+$CMDL vim-cmd vmsvc/getallvms >>$TEMP
+##Vmid Name File Guest OS Version Annotation
+
+#set -x
+while read line
+do
+#    echo $line
+
+    vid=`echo $line|cut -f 1 -d " "`
+    vvol=`echo $line|cut -f 2 -d "["`
+    vfile=`echo $vvol|cut -f 2 -d " "`
+    vvol=`echo $vvol|cut -f 1 -d "]"`
+
+    if $(is_int $vid) && [ ! -z $vvol ] ; then
+        CMD1="cat \"/vmfs/volumes/$vvol/$vfile\" | grep \".vmdk\""
+
+        touch $0.blacklist
+        cat $0.blacklist | grep "/vmfs/volumes/$vvol/$vfile" >/dev/nul
+        if [ ! $? -eq 0 ];then
+            echo "echo \"\"" >>$TEMP1
+            echo "echo \"/vmfs/volumes/$vvol/$vfile\"" >>$TEMP1
+            echo "$CMDL $CMD1" >>$TEMP1
+        else
+            echo "`date` WAR BLACKLISTED /vmfs/volumes/$vvol/$vfile" | tee -a $LOG
+        fi
+    fi
+
+done < $TEMP
+
+}
+
+function send_msg()
+{
+# now send out the mail
+echo "`date` INF send out mail" | tee -a $LOG
+TXTFILE=$MAILFILE
+SUBJECT="`hostname` DELTA FILE FOUND!"
+send_mail
+TXTFILE=""
+SUBJECT=""
+echo "`date` INF mail done" | tee -a $LOG
+}
+
+function search_deltafile()
+{
+echo "" >$MAILFILE
+
+listall
+`bash $TEMP1 > $TEMP`
+
+#cat $TEMP | grep -B1 "[0-9][0-9[0-9][0-9][0-9][0-9].vmdk" > $TEMP1
+cat $TEMP | grep -B1 "\-000[0-9][0-9][0-9].vmdk" > $TEMP1
+if [ $? -eq 0 ];then
+    txt="WAR DELTA FILE FOUND!"
+    echo "`date` $txt `cat $TEMP1`" | tee -a $LOG
+
+    echo $txt >>$MAILFILE
+    echo "" >>$MAILFILE
+    cat $TEMP1 >>$MAILFILE
+    echo "" >>$MAILFILE
+
+    echo "-------------------------------" >>$MAILFILE
+    echo "complete list of attached disks" >>$MAILFILE
+    echo "-------------------------------" >>$MAILFILE
+
+    cat $TEMP >>$MAILFILE
+    cat $MAILFILE >>$LOG
+    if [ $MAILSEND -eq 1 ];then
+        send_msg
+    else
+        echo "`date` INF Mail disabled!" | tee -a $LOG
+    fi
+else
+    echo "`date` INF No DELTA FILE found. See logfile $LOG for details" | tee -a $LOG
+    cat $TEMP >> $LOG
+fi
+
+
+rm -f $TEMP
+rm -f $TEMP1
+rm -f $MAILFILE
+}
+
+
+##########################################################
+#                       MAIN
+##########################################################
+
+echo "`date` INF startup $0" | tee -a $LOG
+
+if [ -f /opt/AmutaQ!/etc/AmutaQ!.conf.0 ];then
+    let f=0
+    while [ $f -lt 100 ];do
+        if [ -f /opt/AmutaQ!/etc/AmutaQ!.conf.$f ];then
+            source /opt/AmutaQ!/etc/AmutaQ!.conf.$f
+            echo "" >> $LOG
+            echo "`date` INF using /opt/AmutaQ!/etc/AmutaQ!.conf.$f ($VMHOST)" | tee -a $LOG
+            search_deltafile
+        fi
+        let f=$f+1
+    done
+else
+    source /opt/AmutaQ!/etc/AmutaQ!.conf
+    echo "" >> $LOG
+    echo "`date` INF using /opt/AmutaQ!/etc/AmutaQ!.conf ($VMHOST)" | tee -a $LOG
+    search_deltafile
+fi
+
+echo "`date` INF exit $0" | tee -a $LOG
+echo "" | tee -a $LOG
+
+rm -f $LOCKFILE
+
+
+

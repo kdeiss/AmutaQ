@@ -1,0 +1,49 @@
+#! /bin/bash
+# by k.deiss@it-userdesk.de
+# consolidate vm with broken snapshot
+# to use this tool from cmdline choose proper AmutaQ!.conf in multiserver enviroments
+# V 0.0.1 8.11.21
+
+#don't edit from here
+
+source /opt/AmutaQ!/etc/AmutaQ!.conf
+source /opt/AmutaQ!/lib/cfgedit.lib
+SNAPSHOTHANDLER="/opt/AmutaQ!/vmware/snapshothandler"
+SHUTDOWNHANDLER="/opt/AmutaQ!/vmware/startstopvm"
+
+
+##########################################################
+#                       MAIN
+##########################################################
+
+
+VMGUEST=$1
+if [ -z $VMGUEST ] ; then
+    echo "usage $0 VMGUEST"
+    exit 1
+fi
+
+SNH0="$SNAPSHOTHANDLER SHOW $VMGUEST"
+SNH1="$SNAPSHOTHANDLER CREATE $VMGUEST"
+SNH2="$SNAPSHOTHANDLER DELETE $VMGUEST"
+
+#try to add and directly delete snapshot = consolidating disk
+#see vmware KB 1026380
+#we create snapshot and delete it immediately
+echo "`date` INF CALL TO SHOW SNAPSHOTS"
+$SNH0
+echo "`date` INF SHOW returns $?"
+
+echo "`date` INF CALL TO CREATE NEW SNAPSHOT"
+$SNH1
+echo "`date` INF CREATE NEW SNAPSHOT returns $?"
+
+sleep 3
+echo "`date` INF CALL TO DELETE SNAPSHOT"
+$SNH2
+echo "`date` INF CREATE DELETE SNAPSHOT returns $?"
+
+echo "`date` INF $0 finished $VMGUEST ($RST)"
+echo ""
+
+
