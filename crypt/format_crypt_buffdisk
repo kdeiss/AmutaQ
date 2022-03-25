@@ -7,6 +7,7 @@
 # /dev/md0 is standard. If used, change variable below.
 # V 0.0.1.16.9.19 initial release
 # V 0.0.2.26.12.19 add mddev variable & disk2 mountcheck
+# V 0.0.3.25.03.22 always use luks1 for using derived keys on usb-disks
 
 FILESYSTEM="ext4"
 BUFFERDISK="/mnt/bufferdisk"
@@ -134,7 +135,7 @@ else
 fi
 
 echo "# encoding $DISKRST. Please enter your password:"
-cryptsetup -v luksFormat --verify-passphrase -v /dev/$DISKRST
+cryptsetup -v luksFormat --type luks1 --verify-passphrase -v /dev/$DISKRST
 if [ ! $? -eq 0 ];then
     echo "Error during encoding $DSKRST"
     exit 1
