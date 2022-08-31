@@ -83,14 +83,6 @@ Das AmutaQ!-Paket und das AmutaQ!-Install-Paket müssen nun entpackt werden:
 ```
 tar xvf AmutaQ![-install].tgz -C /
 ```
-
-Um die Dateien aus dem GIT zu laden sind folgende Befehle nötig:
-```
-apt install git
-cd /opt
-git clone https://github.com/kdeiss/AmutaQ-installer.git AmutaQ\!-install
-git clone https://github.com/kdeiss/AmutaQ.git AmutaQ\!
-```
 #### AmutaQ!-Install
 Nun ist das install-Skript auszuführen.
 ```
@@ -157,7 +149,7 @@ Wird ein zweites Device als Parameter angegeben, wird ein verschlüsseltes RAID 
 Es ist sicherzustellen, dass beide Festplatten die gleiche Kapazität haben und für beste Performance vom gleichen Typ sind.  
 Die Bufferdisk wird mit einem manuell einzugebenden Schlüssel geschützt.  
 Das Passwort muss nach einem Neustart des Systems manuell eingegeben werden.
-Dazu wird beim ersten Login durch die *rc.local* das Skript *tools/mount_bufferdisk* gestartet, das zur Eingabe des Schlüssels auffordert,
+Dazu wird beim ersten Login über die *profile.d* das Skript *crypt/cryptdisk_open_bufferdisk* gestartet, das zur Eingabe des Schlüssels auffordert,
 die Bufferdisk öffnet, einbindet und das AmutaQ!-System starten lässt.
 
 Die Verschlüsselung der **USB-Disks** wird mit dem Tool *tools/x-formatdisk* durchgeführt, indem die entsprechende Frage mit **Ja** beantwortet wird.  
