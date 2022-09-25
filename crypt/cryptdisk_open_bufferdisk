@@ -4,15 +4,16 @@
 # V 0.0.2.10.12.20 restart NFS-Server after all
 # V 0.0.3.12.11.21 bugfix mounting crypted Bufferdisk
 # V 0.0.4.29.08.22 support for discards(ssd trim)
-
-UUID=`cat /etc/crypttab |grep "bufferdisk " | head -1 | cut -d= -f2 | cut -d" " -f1`
-OPT=""
-grep -e 'bufferdisk ' /etc/crypttab|grep discard -q
-if [ $? -eq 0 ] ; then
-	OPT="--allow-discards "
-fi
+# V 0.0.5 25.09.22 first check if decryt is necessary
 
 if [ -f /mnt/bufferdisk/bazaar/NOT_MOUNTED ]; then
+	UUID=`cat /etc/crypttab |grep "bufferdisk " | head -1 | cut -d= -f2 | cut -d" " -f1`
+	OPT=""
+	grep -e 'bufferdisk ' /etc/crypttab|grep discard -q
+	if [ $? -eq 0 ] ; then
+		OPT="--allow-discards "
+	fi
+
         echo .
         echo "Bufferdisk is not mounted. Please enter password"
 	sudo cryptsetup luksOpen --disable-keyring $OPT/dev/disk/by-uuid/$UUID bufferdisk
