@@ -21,12 +21,26 @@
 #0.15.6.23.11.20 ah fix when using nfs4
 #0.15.7.10.12.20 only reload NFS-Server, not hard restart
 #0.15.8.31.12.20 kd/ah bugfix detecting process already running(check4amu)
+#0.15.9.10.22 bugfix - don't start if system not configured
 
 #######################don't edit from here ########################
 
-source /opt/AmutaQ!/etc/AmutaQ!.conf
-
 LOG="/var/log/mount_fs.log"
+
+# if system is not configured exit!
+if [ ! -f "/opt/AmutaQ!/etc/pzymail.conf" ] ; then
+	echo "`date` ERR Mailsystem not configured!"
+	echo "`date` ERR Mailsystem not configured!" >> $LOG
+	exit 2
+fi
+
+if [ ! -f "/opt/AmutaQ!/etc/AmutaQ!.conf" ] ; then
+	echo "`date` ERR System not configured!"
+	echo "`date` ERR System not configured!" >> $LOG
+	exit 3
+fi
+
+source /opt/AmutaQ!/etc/AmutaQ!.conf
 source /opt/AmutaQ!/lib/mail.lib
 source /opt/AmutaQ!/lib/discident.lib
 

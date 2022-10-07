@@ -10,6 +10,8 @@
 # V 0.0.4.7.1.16retrz in case of error
 # V 0.0.5.28.4.20 disable/enable control network
 # V 0.0.6.7.10.20 add support for swaks smtp-client
+# V 0.0.7.7.10.22 bugfix
+
 
 let MAX_MAIL_TRIES=3
 
@@ -40,6 +42,11 @@ CIFTOOL="/opt/AmutaQ!/tools/"
 
 function send_mail()
 {
+    if [ ! -f "/opt/AmutaQ!/etc/pzymail.conf" ] ; then
+	echo "`date` ERR Mailsystem not configured!"
+	return 1
+    fi
+
     source "/opt/AmutaQ!/etc/pzymail.conf"
 
     if [ -z $LOG ] ; then
