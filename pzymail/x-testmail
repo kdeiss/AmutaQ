@@ -1,5 +1,6 @@
 #! /bin/bash
 # V 0.0.1.9.10.14 send testmail from xserver via pyzmail
+# V 0.0.2.10.10.22 dialog before sendmail
 
 LOG=/tmp/x-testmail.log
 
@@ -25,6 +26,9 @@ SUBJECT="`hostname` sample subject"
 TXTFILE=""
 #TXT="sample text"
 
+
+zenity --width=600 --height=200 --info --text="Will send mail now - please note that a wrong configuration may result in a longer timeout. Be patient - result will be displayed! Logging to $LOG"
+let MAX_MAIL_TRIES=1
 send_mail
 if [ ! $? -eq 0 ] ; then
     echo "" >> $LOG

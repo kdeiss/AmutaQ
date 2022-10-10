@@ -1,8 +1,0 @@
-PZYDESCRIPTION="external smtp host, auth required, ssl"
-PZYHOST=mail.it-userdesk.de
-PZYPORT=465
-PZYUSER="user@it-userdesk.de"
-PZYPASS="passwort"
-PZYMODE=ssl #normal,ssl,tls
-PZYTO="backup@it-userdesk.de"
-PZYFROM="Backup IT-UserDesk <backup@it-userdesk.de>"

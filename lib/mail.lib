@@ -12,9 +12,7 @@
 # V 0.0.6.7.10.20 add support for swaks smtp-client
 # V 0.0.7.7.10.22 bugfix
 
-
 let MAX_MAIL_TRIES=3
-
 
 # Samples
 # SUBJECT="`hostname` sample subject text"
@@ -39,15 +37,16 @@ CIFTOOL="/opt/AmutaQ!/tools/"
 
 #don't edit from here
 
+CONFIGFILE="/opt/AmutaQ!/etc/pzymail.conf"
 
 function send_mail()
 {
-    if [ ! -f "/opt/AmutaQ!/etc/pzymail.conf" ] ; then
+    if [ ! -f $CONFIGFILE ] ; then
 	echo "`date` ERR Mailsystem not configured!"
 	return 1
     fi
 
-    source "/opt/AmutaQ!/etc/pzymail.conf"
+    source $CONFIGFILE
 
     if [ -z $LOG ] ; then
 	LOG="/tmp/sendmaillib.tmp"
@@ -66,9 +65,21 @@ function send_mail()
 	PZYMODE="normal"
     fi
 
-    echo "`date` INF invoking pyzsendmail -m $PZYMODE -H $PZYHOST -p $PZYPORT -L $PZYUSER -P HIDDEN -f $PZYFROM -t $PZYTO -s $SUBJECT - $nw -T :@$TXTFILE" >> $LOG
+    #swaks tls handling (kd 10/10/22)
+    if [ -z $SWAKSMODE ] ; then
+	echo "# SWAKSMODE: Set TLS handling for swaks (tlso,tlsos,tlsc,tls)" >> $CONFIGFILE
+	echo "# tlso => TLS optional" >> $CONFIGFILE
+	echo "# tlsos => TLS optional strict, fails if TLS negotiation fails" >> $CONFIGFILE
+	echo "# tlsc => TLS immediately on connect" >> $CONFIGFILE
+	echo "# tls => force TLS" >> $CONFIGFILE
+	echo "SWAKSMODE=tlso" >> $CONFIGFILE
+	SWAKSMODE="tlso"
+    fi
 
-    let rtryctr=0
+
+#    echo "`date` INF invoking pyzsendmail -m $PZYMODE -H $PZYHOST -p $PZYPORT -L $PZYUSER -P HIDDEN -f $PZYFROM -t $PZYTO -s $SUBJECT - $nw -T :@$TXTFILE" >> $LOG
+
+    let rtryctr=1
     let MAILRST=1
 #ah: support for swaks
     FROM=`echo "$PZYFROM"|grep -Eio '\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,4}\b'`
@@ -82,19 +93,24 @@ function send_mail()
 
     while [ $MAILRST -gt 0 ] ; do
 	if [ $SWAKS -eq 0 ] ; then
+	    echo "sendmode is $SWAKSMODE" >> $LOG
 	    if [ -z $PZYPASS ] ; then
 		#no auth required
-		swaks -S 2 -tlsc -s $PZYHOST -p $PZYPORT                           --from $FROM --h-From "$PZYFROM" --to "$PZYTO" --h-Subject "$SUBJECT" --body $TXTFILE 2>> $LOG >> $LOG
+		echo "`date` INF calling  swaks -S 2 -$SWAKSMODE -s $PZYHOST -p $PZYPORT                           --from $FROM --h-From "$PZYFROM" --to "$PZYTO" --h-Subject "$SUBJECT" --body $TXTFILE" >> $LOG
+		swaks -S 2 -$SWAKSMODE -s $PZYHOST -p $PZYPORT                           --from $FROM --h-From "$PZYFROM" --to "$PZYTO" --h-Subject "$SUBJECT" --body $TXTFILE 2>> $LOG >> $LOG
 	    else
 		#auth required !
-		swaks -S 2 -tlsc -s $PZYHOST -p $PZYPORT -au $PZYUSER -ap $PZYPASS --from $FROM --h-From "$PZYFROM" --to "$PZYTO" --h-Subject "$SUBJECT" --body $TXTFILE 2>> $LOG >> $LOG
+		echo "`date` INF calling swaks -S 2 -$SWAKSMODE -s $PZYHOST -p $PZYPORT -au $PZYUSER -ap PZYPASS --from $FROM --h-From "$PZYFROM" --to "$PZYTO" --h-Subject "$SUBJECT" --body $TXTFILE" >> $LOG
+		swaks -S 2 -$SWAKSMODE -s $PZYHOST -p $PZYPORT -au $PZYUSER -ap $PZYPASS --from $FROM --h-From "$PZYFROM" --to "$PZYTO" --h-Subject "$SUBJECT" --body $TXTFILE 2>> $LOG >> $LOG
 	    fi
 	elif [ $PYZMAIL -eq 0 ] ; then
 	    if [ -z $PZYPASS ] ; then
 		#no auth required
+		echo "`date` INF calling /usr/local/bin/pyzsendmail -m $PZYMODE -H $PZYHOST -p $PZYPORT                         -f "$PZYFROM" -t "$PZYTO" -s "$SUBJECT" -T :@"$TXTFILE"" >> $LOG
 		/usr/local/bin/pyzsendmail -m $PZYMODE -H $PZYHOST -p $PZYPORT                         -f "$PZYFROM" -t "$PZYTO" -s "$SUBJECT" -T :@"$TXTFILE" 2>> $LOG >> $LOG
 	    else
 		#auth required !
+		echo "`date` INF calling /usr/local/bin/pyzsendmail -m $PZYMODE -H $PZYHOST -p $PZYPORT -L $PZYUSER -P PZYPASS -f "$PZYFROM" -t "$PZYTO" -s "$SUBJECT" -T :@"$TXTFILE"" >> $LOG 
 		/usr/local/bin/pyzsendmail -m $PZYMODE -H $PZYHOST -p $PZYPORT -L $PZYUSER -P $PZYPASS -f "$PZYFROM" -t "$PZYTO" -s "$SUBJECT" -T :@"$TXTFILE" 2>> $LOG >> $LOG
 	    fi
 	else
@@ -131,7 +147,7 @@ function send_mail()
 
 
 #start
-source "/opt/AmutaQ!/etc/pzymail.conf"
+source $CONFIGFILE
 if [ -z $LOG ] ; then
     echo "`date` WAR no valid LOG var."
     echo "`date` INF LIBFILE mail.lib included"

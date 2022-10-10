@@ -6,3 +6,7 @@ pip install pyzmail
 
 binaries
 /usr/local/bin/pyzsendmail
+
+
+Note: pyzmail not maintained anymore!
+Replaced with swaks in 2021

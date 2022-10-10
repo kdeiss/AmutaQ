@@ -6,3 +6,9 @@ PZYPASS="passwort"
 PZYMODE=ssl #normal,ssl,tls
 PZYTO="backup@it-userdesk.de"
 PZYFROM="Backup IT-UserDesk <backup@it-userdesk.de>"
+# SWAKSMODE: Set TLS handling for swaks (tlso,tlsos,tlsc,tls)
+# tlso => TLS optional
+# tlsos => TLS optional strict, fails if TLS negotiation fails
+# tlsc => TLS immediately on connect
+# tls => force TLS
+SWAKSMODE=tlso
