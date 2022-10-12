@@ -1,3 +1,10 @@
+VERSION="AmutaQ! 0.4.23.12.10.22"
+-    update lamw (ah)
+-    delete some useless files (kd)
+-    preserve some folders e.g. spool / indexfiles (kd/ah)
+-    mail.lib make swaks TLS configurable (kd)
+
+
 VERSION="AmutaQ! 0.4.22.28.4.20"
 -    possibility to disable control network
 -    lamw controlscript

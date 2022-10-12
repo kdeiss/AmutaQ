@@ -1,3 +1,6 @@
+10/22
+bazaarvcb broken with ESXi> 7.x - gui not working
+
 11/19
 erweiterung maschinespez. config files 
 um lamw steuerung zu verbessern
