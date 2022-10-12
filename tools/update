@@ -9,6 +9,10 @@
 
 source /opt/AmutaQ!/etc/AmutaQ!.conf
 
+echo "This script is depreciated!"
+echo "AmutaQ is using git for updates since 2020."
+exit 1
+
 BF=`basename $0`
 cp $0-aux /tmp
 # ls -la /tmp/$BF-aux
