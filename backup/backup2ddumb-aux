@@ -82,11 +82,11 @@ T="/mnt/ddumbfs"
 if [ ! "$BACKUPTOOL" == "LAMW" ];then
     # this is the default setting: use bazaar for backup
     BAZAAR="/opt/AmutaQ!/bazaar/vm_backup_single"
-    echo "`date` INF will use bazaar ($BAZAAR) for backup" >> $LOG
+    #echo "`date` INF will use bazaar ($BAZAAR) for backup" >> $LOG
 else
     # only if explicitly set use lamw
     BAZAAR="/opt/AmutaQ!/lamw/vm_backup_single"
-    echo "`date` INF will use lamw ($BAZAAR) for backup" >> $LOG
+    #echo "`date` INF will use lamw ($BAZAAR) for backup" >> $LOG
 fi
 
 
@@ -691,7 +691,7 @@ function check_lazybone
 
 source /opt/AmutaQ!/lib/mail.lib
 echo "">>"$LOG"
-echo "`date` INF $VERSION startup." >>"$LOG"
+#echo "`date` INF $VERSION startup." >>"$LOG"
 echo "`date` INF $0 version $LV">>"$LOG"
 cd $HOMEDIR
 
