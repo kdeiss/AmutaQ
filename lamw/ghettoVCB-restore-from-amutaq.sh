@@ -2,6 +2,13 @@
 # Author: William Lam 
 # 08/18/2009
 # http://www.virtuallyghetto.com/
+
+# This is a patch for AmutaQ backup system to lamw restore version 2021_10_20
+# Instead of copying the vmdk files it just creates a vmx file inside the destination folder and is working with the original vmdk (on nfs share)
+# To avoid writings to the nfs share we create a snapshot on the local target volume
+# This is only usefull during emergencies e.g to have quick access to distinct backups
+# kdeiss 01/02/23
+
 ##################################################################
 
 ###### DO NOT EDIT PASS THIS LINE ######
@@ -81,10 +88,12 @@ sanityCheck() {
 
     if [ -f /usr/bin/vmware-vim-cmd ]; then
         VMWARE_CMD=/usr/bin/vmware-vim-cmd
-        VMKFSTOOLS_CMD=/usr/sbin/vmkfstools
+        #VMKFSTOOLS_CMD=/usr/sbin/vmkfstools
+	VMKFSTOOLS_CMD=echo
     elif [ -f /bin/vim-cmd ]; then
         VMWARE_CMD=/bin/vim-cmd
-        VMKFSTOOLS_CMD=/sbin/vmkfstools
+        #VMKFSTOOLS_CMD=/sbin/vmkfstools
+	VMKFSTOOLS_CMD=echo
     else
         logger "ERROR: Unable to locate *vimsh*!"
         echo "ERROR: Unable to locate *vimsh*!"
@@ -312,11 +321,22 @@ if [ ! "${IS_TGZ}" == "1" ]; then
                 ORIGINAL_VMX_LINE=$(echo "${i}" | awk -F ',' '{print $1}')
                 MODIFIED_VMX_LINE=$(echo "${i}" | awk -F ',' '{print $2}')
 
+		#AmutaQ: include full path of the source vmdk
+		M1=$(echo "${MODIFIED_VMX_LINE}" | awk -F '=' '{print $1}')
+		M2=$(echo "${MODIFIED_VMX_LINE}" | awk -F '=' '{print $2}' | sed 's/"//g' | sed -e 's/^[[:blank:]]*//;s/[[:blank:]]*$//')
+		MODIFIED_VMX_LINE="$M1= \"${VM_TO_RESTORE}/$SOURCE_LINE_VMDK\""
+
                 #update restored VM to match VMDKs
                 logger "Updating VMDK entry in \"${VM_RESTORE_VMX}\" file ..."
                 if [ ! "${DEVEL_MODE}" == "2" ]; then
                     sed -i "s#${ORIGINAL_VMX_LINE}#${MODIFIED_VMX_LINE}#g" "${VM_RESTORE_DIR}/${VM_RESTORE_VMX}"
                 fi
+
+		#AmutaQ: set snapshot location to the newly created directory 
+		echo "workingDir = \"${VM_RESTORE_DIR}\"" >> "${VM_RESTORE_DIR}/${VM_RESTORE_VMX}"
+		echo "sched.swap.dir = \"${VM_RESTORE_DIR}\"" >> "${VM_RESTORE_DIR}/${VM_RESTORE_VMX}"
+		echo "snapshot.redoNotWithParent = \"true\"" >> "${VM_RESTORE_DIR}/${VM_RESTORE_VMX}"
+
 
                 echo "${SOURCE_LINE_VMDK}" | grep "/vmfs/volumes" > /dev/null 2>&1
                 if [ $? -eq 0 ]; then
@@ -367,7 +387,10 @@ if [ ! "${IS_TGZ}" == "1" ]; then
             logger "Registering $VM_DISPLAY_NAME ..."
 
             if [ ! "${DEVEL_MODE}" == "2" ]; then
-                ${VMWARE_CMD} solo/registervm "${VM_RESTORE_DIR}/${VM_RESTORE_VMX}"
+                MID=`${VMWARE_CMD} solo/registervm "${VM_RESTORE_DIR}/${VM_RESTORE_VMX}"`
+
+		# AmutaQ: take immediately snapshot
+		${VMWARE_CMD} vmsvc/snapshot.create $MID "Auto Snapshot after registering" "No further Description"
             fi
 
             logger "End time: $(date)"
