@@ -332,11 +332,6 @@ if [ ! "${IS_TGZ}" == "1" ]; then
                     sed -i "s#${ORIGINAL_VMX_LINE}#${MODIFIED_VMX_LINE}#g" "${VM_RESTORE_DIR}/${VM_RESTORE_VMX}"
                 fi
 
-		#AmutaQ: set snapshot location to the newly created directory 
-		echo "workingDir = \"${VM_RESTORE_DIR}\"" >> "${VM_RESTORE_DIR}/${VM_RESTORE_VMX}"
-		echo "sched.swap.dir = \"${VM_RESTORE_DIR}\"" >> "${VM_RESTORE_DIR}/${VM_RESTORE_VMX}"
-		echo "snapshot.redoNotWithParent = \"true\"" >> "${VM_RESTORE_DIR}/${VM_RESTORE_VMX}"
-
 
                 echo "${SOURCE_LINE_VMDK}" | grep "/vmfs/volumes" > /dev/null 2>&1
                 if [ $? -eq 0 ]; then
@@ -381,7 +376,19 @@ if [ ! "${IS_TGZ}" == "1" ]; then
                 fi
             done
             unset IFS
-            IFS="${OLD_IFS}"				
+            IFS="${OLD_IFS}"	
+
+	    #AmutaQ: set snapshot location to the newly created directory 
+	    cat "${VM_RESTORE_DIR}/${VM_RESTORE_VMX}" | grep "workingDir" 
+
+	    if [ $? -eq 0 ] ; then
+		logger "can't add workingDir to ${VM_RESTORE_DIR}/${VM_RESTORE_VMX}"
+	    else
+		logger "add snapshot.redoNotWithParent sched.swap.dir and workingDir to ${VM_RESTORE_DIR}/${VM_RESTORE_VMX}"
+		echo "workingDir = \"${VM_RESTORE_DIR}\"" >> "${VM_RESTORE_DIR}/${VM_RESTORE_VMX}"
+		echo "sched.swap.dir = \"${VM_RESTORE_DIR}\"" >> "${VM_RESTORE_DIR}/${VM_RESTORE_VMX}"
+		echo "snapshot.redoNotWithParent = \"true\"" >> "${VM_RESTORE_DIR}/${VM_RESTORE_VMX}"		
+	    fi
 
             #register VM on ESX(i) host
             logger "Registering $VM_DISPLAY_NAME ..."
