@@ -324,6 +324,7 @@ if [ ! "${IS_TGZ}" == "1" ]; then
 		#AmutaQ: include full path of the source vmdk
 		M1=$(echo "${MODIFIED_VMX_LINE}" | awk -F '=' '{print $1}')
 		M2=$(echo "${MODIFIED_VMX_LINE}" | awk -F '=' '{print $2}' | sed 's/"//g' | sed -e 's/^[[:blank:]]*//;s/[[:blank:]]*$//')
+		SOURCE_LINE_VMDK=$(echo "${SOURCE_LINE_VMDK}" | awk -F '/' '{print $NF}')
 		MODIFIED_VMX_LINE="$M1= \"${VM_TO_RESTORE}/$SOURCE_LINE_VMDK\""
 
                 #update restored VM to match VMDKs

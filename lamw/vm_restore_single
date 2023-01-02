@@ -1,0 +1,505 @@
+#! /bin/bash
+# by k.deiss@it-userdesk.de
+# restore of single machine with w.lam script (ghettoVCB)- called by main script
+# sample call: 
+
+# V 0.0.1 31.12.22
+
+
+#don't edit from here
+
+
+source /opt/AmutaQ!/etc/AmutaQ!.conf
+#source /opt/AmutaQ!/etc/AmutaQ!_TEST.conf
+source /opt/AmutaQ!/lib/cfgedit.lib
+SNAPSHOTHANDLER="/opt/AmutaQ!/vmware/snapshothandler"
+SHUTDOWNHANDLER="/opt/AmutaQ!/vmware/startstopvm"
+SNH0="$SNAPSHOTHANDLER CREATE $VMGUEST"
+SNH1="$SNAPSHOTHANDLER DELETE $VMGUEST"
+SHDWN="$SHUTDOWNHANDLER STOP $VMGUEST"
+STAUP="$SHUTDOWNHANDLER START10 $VMGUEST"
+let SHUTDOWN=0
+let MAXTRIESLAM=1
+
+LOG=$ASYNC_LOG
+BASEPATH="/opt/AmutaQ!/lamw"
+LAMWLOG="/var/log/lamw.log"
+TMPLOG="/tmp/lamw.log"
+
+# set this always to 1 - so lamw script is only producing 1 Backup. We take care of the amount of backups later
+VM_BACKUP_ROTATION_COUNT=1
+FNAME="ghettoVCB"
+# The commandline to the ESXI host
+CMDL="sshpass -p "$VMPASSWORD" ssh -o StrictHostKeyChecking=no $VMUSER@$VMHOST"
+
+
+PF=`hostname`
+
+
+##############script detection#########################
+LOCKFILE=/tmp/$(basename $0).lck
+
+if [ -f $LOCKFILE ] ; then
+    SPID=`cat $LOCKFILE`
+#    ps -e | grep $SPID >> /dev/null
+    ps -o cmd -p $SPID |grep `basename $0` >> /dev/null
+    if [ $? -eq 0 ] ; then
+	echo "`date` INF $0 already running!"
+	exit 1
+    else
+	echo "`date` WAR $0 has lockfile but is not running!"
+    fi
+fi
+
+
+del_lock()
+{
+    echo "`date` WAR $0 external signal caught, exiting" 
+    echo "`date` WAR compatibility logfile end - $0 external signal caught, exiting" >> $LAMWLOG
+    rm -f $LOCKFILE
+}
+
+trap "del_lock ; exit 1" 2 9 15
+echo $$ > $LOCKFILE
+##############script detection#########################
+
+
+#save the size of an vm backup to machine specific conf file
+function save_size
+{
+fn="/opt/AmutaQ!/etc/$VMGUEST.conf"
+fnHisto="/opt/AmutaQ!/etc/$VMGUEST.txt"
+
+let USEDDISKSPACE=0
+let USEDDISKSPACE=$1
+
+sUSEDDISKSPACE="USEDDISKSPACE="
+
+cat $fn | grep $sUSEDDISKSPACE > /dev/null
+if [ ! $? -eq 0 ] ; then
+    echo "`date` INF First saving size value <$DIRSIZE> to $fn"
+    echo "$sUSEDDISKSPACE$USEDDISKSPACE" >> $fn
+else
+    echo "`date` INF saving size value <$DIRSIZE> to $fn"
+    primifileeditor $fn "$sUSEDDISKSPACE" "$sUSEDDISKSPACE$USEDDISKSPACE" 
+fi
+echo "`date`;$DIRSIZE" >> $fnHisto
+}
+
+
+function getMachineSpecificValues()
+{
+fn="/opt/AmutaQ!/etc/$VMGUEST.conf"
+
+if [ -f $fn ] ;then
+    source $fn
+    echo  "`date` INF DONTRUNFROM: $DONTRUNFROM"
+    echo  "`date` INF DONTRUNTILL: $DONTRUNTILL"
+    echo  "`date` INF BAZAAREXTRAPARMS: $BAZAAREXTRAPARMS"
+
+    if [ -z $ALLOWREBOOT ] ; then
+	echo  "`date` INF adding new PARM ALLOWREBOOT=0 to $fn"
+	echo "let ALLOWREBOOT=0" >>$fn
+	let ALLOWREBOOT=0
+    fi
+    echo  "`date` INF ALLOWREBOOT: $ALLOWREBOOT"
+else
+    let DONTRUNTILL=-1
+    let DONTRUNFROM=24
+    BAZAAREXTRAPARMS=""
+    echo "let DONTRUNFROM=24" >>$fn
+    echo "let DONTRUNTILL=-1" >>$fn
+    echo "BAZAAREXTRAPARMS=" >>$fn
+    echo "let ALLOWREBOOT=0" >>$fn
+    echo  "`date` INF creating machine specific config: $fn"
+fi
+}
+
+
+function check4run()
+{
+echo "`date` INF checking time restriction for HOUR:$HOUR "
+
+if [ $DONTRUNTILL -gt $DONTRUNFROM ] ;then
+    if [ $HOUR -ge $DONTRUNFROM ]; then
+	if [ $HOUR -le $DONTRUNTILL ]; then
+	    echo "`date` INF V1 will not run - later than $DONTRUNFROM "
+	    return 1
+	fi
+    fi
+else
+    #zb 22 - 4
+    if [ $HOUR -ge $DONTRUNFROM ]; then
+	echo "`date` INF V2 will not run - later than $DONTRUNFROM "
+	return 1
+    fi
+fi
+
+
+if [ $DONTRUNTILL -ge $DONTRUNFROM ] ;then
+    if [ $HOUR -le $DONTRUNTILL ]; then
+	if [ $HOUR -ge $DONTRUNFROM ]; then
+	    echo "`date` INF V1 will not run - earlier than $DONTRUNTILL"
+	    return 1
+	fi
+    fi
+else
+    #zb 22 - 4
+    if [ $HOUR -le $DONTRUNTILL ]; then
+	echo "`date` INF V2 will not run - earlier than $DONTRUNTILL"
+	return 1
+    fi
+fi
+echo "`date` INF no time restrictions - will run"
+return 0
+}
+
+
+function testtimechecker()
+{
+let DONTRUNFROM=12
+let DONTRUNTILL=15
+echo "DONTRUNFROM: $DONTRUNFROM / DONTRUNTILL: $DONTRUNTILL"
+for i in 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23
+do 
+    let HOUR=i
+    check4run
+    #echo $?
+done
+}
+
+function err_handler()
+{
+    rm -f $LOCKFILE
+    echo "`date` ERR finished $VMGUEST with error ($RST)"
+    echo "`date` ERR compatibility logfile end - finished $VMGUEST with error ($RST)" >> $LAMWLOG
+    echo ""
+    exit $RST
+}
+
+
+#prepare ghetto configuration file
+prep_conf()
+{
+
+echo -n "" > $BASEPATH/$FNAME.conf
+if [ -f  $BASEPATH/$FNAME.sample ];then
+    while read line
+    do
+	echo $line | grep "VM_BACKUP_VOLUME" >/dev/null
+	if [ $? -eq 0 ] ;then
+	    echo "VM_BACKUP_VOLUME=$VM_BACKUP_VOLUME" >> $BASEPATH/$FNAME.conf
+	else
+	    #VM_BACKUP_ROTATION_COUNT=3
+	    echo $line | grep "VM_BACKUP_ROTATION_COUNT" >/dev/null
+	    if [ $? -eq 0 ] ;then
+		echo "VM_BACKUP_ROTATION_COUNT=$VM_BACKUP_ROTATION_COUNT" >> $BASEPATH/$FNAME.conf
+	    else
+		echo $line >> $BASEPATH/$FNAME.conf
+	    fi
+	fi
+    done < $BASEPATH/$FNAME.sample
+else
+    echo "`date` WAR $BASEPATH/$FNAME.sample not found!"
+    return 1
+fi
+return 0
+}
+
+#LOCAL_VM_BACKUP_VOLUME
+#we create a file through the NFS drive and verify it localy
+check_conf()
+{
+# kd 2.10 bugfixing ID
+#ID=`date`
+ID=$(date +%F_%H-%M-%S)
+
+let rst=10
+let ctr=0
+let maxctr=5
+
+while [ ! $rst -eq 0 ]
+do
+    mkdir "$LOCAL_VM_BACKUP_VOLUME" 2>/dev/null
+    chmod 777 "$LOCAL_VM_BACKUP_VOLUME"
+    crst=$?
+    if [ ! $crst -eq 0 ];then
+	echo "`date` ERR can't verify $LOCAL_VM_BACKUP_VOLUME"
+	return 1
+    fi
+    let ctr=ctr+1
+    if [ $ctr -eq $maxctr ];then
+	echo "`date` ERR can't verify $VM_BACKUP_VOLUME giving up stage 1"
+	return 1
+    else
+	echo "`date` INF try to write to NFS share ($ctr/$maxctr)"
+    fi
+
+    rm -f "$LOCAL_VM_BACKUP_VOLUME/verify" 2>/dev/null
+    touch "$LOCAL_VM_BACKUP_VOLUME/verify"
+    chmod 666 "$LOCAL_VM_BACKUP_VOLUME/verify"
+    $CMDL "echo $ID > $VM_BACKUP_VOLUME/verify"
+    crst=$?
+      if [ $crst -eq 0 ];then
+	let rst=0
+	break
+    fi
+    sleep 10
+done
+
+if [ ! $crst -eq 0 ];then
+    echo "`date` WAR can't verify $VM_BACKUP_VOLUME stage 2"
+    return 2
+fi
+
+echo "`date` INF RESULT OF WRITING FILE TO NFS SHARE: $ID == `cat $LOCAL_VM_BACKUP_VOLUME/verify`"
+
+if [ "$ID" == "`cat $LOCAL_VM_BACKUP_VOLUME/verify`" ] ;then
+    echo "`date` INF NFS mounted and operational!"
+    return 0
+else
+    echo "`date` WAR can't verify $VM_BACKUP_VOLUME stage 3"
+    return 3
+fi
+}
+
+
+#we copy the lamw scripts to the ESXi host
+copy_files()
+{
+# bugfixing 3.4.20 / cleanup /tmp folder of esxi host
+$CMDL "rm -f /tmp/$PF/lamw_workdir/* 2>/dev/null"
+$CMDL "rmdir /tmp/$PF/lamw_workdir 2>/dev/null"
+$CMDL "rm -f /tmp/$PF/* 2>/dev/null"
+$CMDL "rmdir /tmp/$PF"
+
+$CMDL "mkdir /tmp/$PF"
+
+fname="$FNAME.sh"
+sshpass -p "$VMPASSWORD" scp "$BASEPATH/$fname" "root@$VMHOST:/tmp/$PF"
+if [ ! $? -eq 0 ];then
+    echo "`date` WAR can't copy $fname"
+    return 1
+fi
+
+fname="$FNAME.conf"
+sshpass -p "$VMPASSWORD" scp "$BASEPATH/$fname" "root@$VMHOST:/tmp/$PF"
+if [ ! $? -eq 0 ];then
+    echo "`date` WAR can't copy $fname"
+    return 2
+fi
+return 0
+}
+
+#we run the lamw scripts on the ESXi host
+run_lamw()
+{
+echo -n "" > $TMPLOG
+#$CMDL "/tmp/$FNAME.sh -g /tmp/$FNAME.conf -m $VMGUEST -d dryrun" > $TMPLOG
+$CMDL "chmod 777 /tmp/$PF/$FNAME.sh"
+$CMDL "/tmp/$PF/$FNAME.sh -g /tmp/$PF/$FNAME.conf -m $VMGUEST -w /tmp/$PF/lamw_workdir" 2>> $LAMWLOG | tee -a $TMPLOG
+return $?
+}
+
+# kd 7.10.19 delete broken lamw backup
+delete_broken_lamw_backup()
+{
+newdir=`cat $TMPLOG | grep "VM_BACKUP_DIR_NAMING_CONVENTION" | cut -f 2 -d "=" | cut -f 2 -d " "`
+
+if [ -d "$LOCAL_VM_BACKUP_VOLUME/$VMGUEST/$VMGUEST-$newdir" ] ; then
+    echo "`date` INF try to delete broken backup $LOCAL_VM_BACKUP_VOLUME/$VMGUEST/$VMGUEST-$newdir"
+    rm -rf "$LOCAL_VM_BACKUP_VOLUME/$VMGUEST/$VMGUEST-$newdir"
+    if [ ! $? -eq 0 ];then
+	echo "`date` WAR can't remove $LOCAL_VM_BACKUP_VOLUME/$VMGUEST/$VMGUEST-$newdir!"
+    else
+	echo "`date` INF broken backup $LOCAL_VM_BACKUP_VOLUME/$VMGUEST/$VMGUEST-$newdir removed."
+    fi
+fi
+}
+
+
+
+# kd 7.10.19 check backup via status file
+ana_lamw_backup()
+{
+newdir=`cat $TMPLOG | grep "VM_BACKUP_DIR_NAMING_CONVENTION" | cut -f 2 -d "=" | cut -f 2 -d " "`
+
+echo "`date` INF checking result of lamw backup via statusfile"
+if [ -d "$LOCAL_VM_BACKUP_VOLUME/$VMGUEST/$VMGUEST-$newdir" ] ; then
+    if [ -f "$LOCAL_VM_BACKUP_VOLUME/$VMGUEST/$VMGUEST-$newdir/STATUS.error" ] ; then
+	echo "`date` ERR LAMW status.error ==> `cat $LOCAL_VM_BACKUP_VOLUME/$VMGUEST/$VMGUEST-$newdir/STATUS.error`"
+	return 1
+    fi
+    if [ -f "$LOCAL_VM_BACKUP_VOLUME/$VMGUEST/$VMGUEST-$newdir/STATUS.ok" ] ; then
+	echo "`date` INF LAMW status.ok ==> `cat $LOCAL_VM_BACKUP_VOLUME/$VMGUEST/$VMGUEST-$newdir/STATUS.ok`"
+	return 0
+    fi
+    if [ -f "$LOCAL_VM_BACKUP_VOLUME/$VMGUEST/$VMGUEST-$newdir/STATUS.warn" ] ; then
+	echo "`date` INF LAMW status.warn ==> `cat $LOCAL_VM_BACKUP_VOLUME/$VMGUEST/$VMGUEST-$newdir/STATUS.warn`"
+	return 0
+    #HOTFIX 11/20 there seems to be no statusfile!
+    else
+        echo "`date` WAR LAMW status unknown????"
+        ls "$LOCAL_VM_BACKUP_VOLUME/$VMGUEST/$VMGUEST-$newdir/"
+        return 1
+    fi
+else
+    echo "`date` INF can't find expected directory $LOCAL_VM_BACKUP_VOLUME/$VMGUEST/$VMGUEST-$newdir"
+    return 2
+fi
+}
+
+
+
+# we extract the backup name and move the backup to the top level of the directory
+ana_log_and_move()
+{
+tmp="/tmp/vm_backup_single.tmp"
+#echo "`date` INF Log of lamw script:"
+#cat $TMPLOG
+newdir=`cat $TMPLOG | grep "VM_BACKUP_DIR_NAMING_CONVENTION" | cut -f 2 -d "=" | cut -f 2 -d " "`
+newdir1=`echo ${newdir//-/}`
+newdir1=`echo ${newdir1//_/}`
+newdir1="$LOCAL_VM_BACKUP_VOLUME/$VMGUEST-$newdir1"
+#echo $newdir1
+echo "`date` INF moving $LOCAL_VM_BACKUP_VOLUME/$VMGUEST/$VMGUEST-$newdir $newdir1"
+if [ -d "$LOCAL_VM_BACKUP_VOLUME/$VMGUEST/$VMGUEST-$newdir" ] ; then
+    mv "$LOCAL_VM_BACKUP_VOLUME/$VMGUEST/$VMGUEST-$newdir" "$newdir1"
+    if [ ! $? -eq 0 ];then
+	echo "`date` ERR can't move backup!"
+	return 1
+    else
+	echo "DUMMY1 INF renaming destination to $newdir1" >> $LAMWLOG
+	echo "`date` INF backup moved to final destination"
+	rm -rf "$LOCAL_VM_BACKUP_VOLUME/$VMGUEST/$VMGUEST-$newdir"
+	rm -rf "$LOCAL_VM_BACKUP_VOLUME/$VMGUEST"
+	if [ ! $? -eq 0 ];then
+	    echo "`date` WAR can't remove $LOCAL_VM_BACKUP_VOLUME/$VMGUEST!"
+	else
+	    echo "`date` INF $LOCAL_VM_BACKUP_VOLUME/$VMGUEST removed."
+	fi
+
+	#now make the folder flat
+	dir2delete=""
+	find "$newdir1" -name *.vmdk >$tmp
+	while read fn
+	do
+	    dn=`dirname $fn`
+	    dn="$dn/"
+	    dnx=`echo ${dn/$newdir1//}`
+	    #echo "dnx: >$dnx<"
+	    if [ "$dnx" != "//" ] ; then
+		echo "`date` INF mv $fn $newdir1"
+		dmx2=`echo $dnx | cut -f 3 -d "/"`
+		mv $fn "$newdir1"
+		if [ $? -eq 0 ];then
+		    echo "`date` INF $fn moved succesfully into flat structure"
+		    # delete empty directories
+		    if [ ! -z $dmx2 ];then
+			echo $dir2delete | grep $newdir1/$dmx2 >/dev/null
+			if [ ! $? -eq 0 ] ;then
+			    if [ -z $dir2delete ] ; then
+				dir2delete="$newdir1/$dmx2"
+			    else
+				dir2delete="$dir2delete $newdir1/$dmx2"
+			    fi
+			fi
+		    fi
+		else
+		    echo "`date` WAR $fn NOT moved to flat structure!"
+		fi
+	    fi
+	done < $tmp
+	rm -f $tmp
+
+	for dir2del in $dir2delete
+	do
+	    echo "`date` INF removing empty directory $dir2del"
+	    rm -rf "$dir2del"
+	done
+
+	if [ -d "$newdir1" ] ; then
+	    echo "`date` INF parsing new backup path: $newdir1"
+	    let DIRSIZE=0
+	    tmp=`du $newdir1 | tail -n 1 | cut -f 1 -d "/"`
+	    let DIRSIZE=$tmp
+	    if [ $DIRSIZE -gt 0 ] ; then
+		echo "`date` INF size of vm is <$DIRSIZE>"
+		return 0
+	    else
+		echo "`date` WAR can't get size of: $newdir1"
+		return 2
+	    fi
+	else
+	    echo "`date` WAR can't get size - directory invalid: $newdir1"
+	    return 1
+	fi
+    fi
+else
+    echo "`date` ERR $newdir not found!"
+    return 3
+fi
+}
+
+#remove backups if there are more than defined in KEEPVERSIONS
+cleanup()
+{
+for VMGUESTS in $VMGUEST
+    do
+	CTR=`find $LOCAL_VM_BACKUP_VOLUME -type d -name "${VMGUESTS}-*" | wc -l`
+	echo "`date` INF Found $CTR Backups for $VMGUESTS / we will keep $KEEP version(s)."
+	let ctr=0
+	for fn in `find $LOCAL_VM_BACKUP_VOLUME -type d -name "${VMGUESTS}-*" | sort -r`
+	do
+    	    let ctr=$ctr+1
+	    if [ $ctr -gt $KEEP ] ; then
+		echo "`date` INF will delete $fn"
+		rm -rf $fn
+		if [ ! $? -eq 0 ];then
+		    echo "`date` ERR can't remove backup!"
+		fi
+	    else
+		echo "`date` INF Will hold $fn"
+	    fi
+	done
+    done
+}
+
+
+
+##########################################################
+#			MAIN
+##########################################################
+
+echo "`date` INF startup $0 $1 $2 $3 $4 $5"
+
+VMGUEST=$1
+if [ -z $VMGUEST ] ; then
+    echo "usage $0 VMGUEST TARGET KEEPVERSIONS LOGFILE"
+    rm -f $LOCKFILE
+    exit 1
+fi
+
+
+LOCAL_VM_BACKUP_VOLUME=$2
+if [ -z $LOCAL_VM_BACKUP_VOLUME ] ; then
+    echo "usage $0 VMGUEST TARGET KEEPVERSIONS LOGFILE"
+    rm -f $LOCKFILE
+    exit 1
+fi
+
+KEEP=$3
+if [ -z $KEEP ] ; then
+    echo "usage $0 VMGUEST TARGET KEEPVERSIONS LOGFILE"
+    rm -f $LOCKFILE
+    exit 1
+fi
+
+#optionaler parameter - das logfile in welchem lamw loggt
+LAMWLOG=$4
+if [ ! -z $4 ] ; then
+    echo "`date` INF using logfile $LAMWLOG"
+    echo "`date` INF this log is only for compatibility reason to the calling instance." >> $LAMWLOG
+fi
+
+

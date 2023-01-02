@@ -1,0 +1,88 @@
+#! /bin/bash
+# by k.deiss@it-userdesk.de
+# create list of restore candidates
+# sample call: 
+
+# V 0.0.1 2.1.22
+
+TARGET_ESXI_SERVER="192.168.19.16"
+TARGET_DATASTORE="datastore1"
+TARGET_DISK_FORMAT=3
+
+
+PATH0="/vmfs/volumes"
+PATH1="/BUFFERDISK_${TARGET_ESXI_SERVER}/bazaar"
+
+SOURCEPATH=$PATH0$PATH1
+
+#don't edit from here
+
+
+source /opt/AmutaQ!/etc/AmutaQ!.conf
+
+LOG=$ASYNC_LOG
+BASEPATH="/opt/AmutaQ!/lamw"
+LAMWLOG="/var/log/lamw_restore.log"
+TMPLOG="/tmp/lamw_restore.log"
+TMPOUTPUT="/tmp/lamw_restore.conf"
+
+
+# The commandline to the ESXI host
+CMDL="sshpass -p "$VMPASSWORD" ssh -o StrictHostKeyChecking=no $VMUSER@$VMHOST"
+
+PF=`hostname`
+
+
+##############script detection#########################
+LOCKFILE=/tmp/$(basename $0).lck
+
+if [ -f $LOCKFILE ] ; then
+    SPID=`cat $LOCKFILE`
+#    ps -e | grep $SPID >> /dev/null
+    ps -o cmd -p $SPID |grep `basename $0` >> /dev/null
+    if [ $? -eq 0 ] ; then
+	echo "`date` INF $0 already running!"
+	exit 1
+    else
+	echo "`date` WAR $0 has lockfile but is not running!"
+    fi
+fi
+
+
+del_lock()
+{
+    echo "`date` WAR $0 external signal caught, exiting" 
+    rm -f $LOCKFILE
+}
+
+trap "del_lock ; exit 1" 2 9 15
+echo $$ > $LOCKFILE
+##############script detection#########################
+
+cd $VMBACKUPTARGET
+find . | grep ".vmx" > $TMPLOG
+
+
+echo "#<DIRECTORY or .TGZ>;<DATASTORE_TO_RESTORE_TO>;<DISK_FORMAT_TO_RESTORE>" > $TMPOUTPUT
+echo "# DISK_FORMATS" >> $TMPOUTPUT
+echo "# 1 = zeroedthick" >> $TMPOUTPUT
+echo "# 2 = 2gbsparse" >> $TMPOUTPUT
+echo "# 3 = thin" >> $TMPOUTPUT
+echo "# 4 = eagerzeroedthick" >> $TMPOUTPUT
+echo "# e.g." >> $TMPOUTPUT
+echo "# \"/vmfs/volumes/dlgCore-NFS-bigboi.VM-Backups/WILLIAM_BACKUPS/STA202I/STA202I-2009-08-18--1;/vmfs/volumes/himalaya-local-SATA.RE4-GP:Storage;1\"" >> $TMPOUTPUT
+echo "# uncomment the lines for machines you would like to restore!" >> $TMPOUTPUT
+echo "" >> $TMPOUTPUT
+
+while read line
+do
+    SDIR=`dirname "${SOURCEPATH}${line:1}"`
+    echo "#\"$SDIR;$PATH0/$TARGET_DATASTORE;$TARGET_DISK_FORMAT\""
+    echo "#\"$SDIR;$PATH0/$TARGET_DATASTORE;$TARGET_DISK_FORMAT\"" >> $TMPOUTPUT
+done < $TMPLOG
+
+mcedit $TMPOUTPUT
+
+
+
+rm -f $LOCKFILE
