@@ -1,0 +1,30 @@
+#! /bin/bash
+# by k.deiss@it-userdesk.de
+# extract time consume from log
+# V 0.0.1.29.12.22
+
+tmp="/tmp/compressed.log"
+
+#don't edit from here
+
+source /opt/AmutaQ!/etc/AmutaQ!.conf
+
+
+
+
+BAZAARLOGDIR="/opt/AmutaQ!/backup"
+BAZAARLOGFN="bazaarvcb.log"
+BUFFERREPORT="/opt/AmutaQ!/bazaar/vm_make_report_bufferdisk"
+
+
+
+echo "-----------------------------------------------------------------------------"
+echo "                  Consumed time					           "
+echo "-----------------------------------------------------------------------------"
+
+# cat async.log |egrep "start copy|ERR |WAR |sent|speedup|finished CRC check| copy \(ID" > $tmp
+#tail -n 600 async.log |egrep "start copy|ERR |sent|speedup|finished CRC check| copy \(ID" > $tmp
+tail -n 2000 $RSYNC_LOG |egrep "Cloning disk|Backup Duration|changing to configuration file"
+
+
+
