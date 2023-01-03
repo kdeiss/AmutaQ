@@ -1,25 +1,37 @@
 #! /bin/bash
-
 # by k.deiss@it-userdesk.de
-# keep alive icy device
-# V 0.0.1.15.1.19
+# keep icy online
+# this devices go offline after 20 minutes without activity
+# we try to keep unused devices online 
+
+# V 0.0.1.26.2.19
+# V 0.0.2.18.4.19 better handling of ejects
+# V 0.0.3.23.4.19 bugfixing
+# V 0.0.4.18.7.19 bugfixing (während eject phase trotzdem schreiben
+# V 0.0.5.21.7.19 bugfixing (alle platten waren entfernt)
+# V 0.0.6.24.7.19 bugfixing (alle platten waren entfernt)
+# V 0.0.7.25.7.19 bugfixing (alle platten waren entfernt)
+
+# crontab settings
+# */3 * * * * //opt/AmutaQ!/tools/icy_keepalive
+# */3 * * * * /mnt/check_umount
+# 30 19 * * * /mnt/forceumount
 
 
-BASEDIR=`dirname $0`
-BASEDIR="/opt/AmutaQ!"
-FNAME="icy_keepalive"
-LOG=$BASEDIR/log/$FNAME.log
-ERRLOG=$BASEDIR/log/$FNAME.log
-let VERBOSE=1
-ICYDEV="/mnt/sde1"
+#don't edit from here
+version="0.0.7.25.7.19"
+source "/opt/AmutaQ!/etc/AmutaQ!.conf"
+MAXAGE=480 # Zeitfenster in dem die Platte nicht beschrieben wird
+LOG="/var/log/icy-keepalive.log"
+LOG1="/var/log/vpnitu.log"
+let DEBUG=2 #0 quiet 1 normal 2 debug
+let EJECT=0
 
-mkdir $BASEDIR/log 2>/dev/null
 
+if [ $DEBUG -gt 0 ];then
+    echo "`date` $0 $version startup" >> $LOG
+fi
 
-function write_icy
-{
-echo "`date` KEEPALIVE" > "$ICYDEV/$FNAME.txt"
-}
 
 
 # log handling
@@ -31,18 +43,146 @@ if [ $FILESIZE -gt 5000000 ] ; then
     touch $LOG
 fi
 
+# gucken ob ein eject file vorhanden ist
+for i in $DDDEVICELIST
+do
+    if [ -f "/mnt/$i.eject" ] ;then
+	let EJECT=1
+	# sicherheitshalber umount ausführen!
+	# aber nur einmal bitte
+	if [ ! -f "/mnt/$i.umount" ];then
+	    if [ $DEBUG -gt 0 ];then
+		echo "`date` INF try to dismount $i!" >> $LOG
+	    fi
+	    umount "/mnt/$i" 2>> $LOG >> $LOG
+	    RST=$?
+	    date >> "/mnt/$i.umount"
+	    if [ $DEBUG -gt 0 ];then
+		echo "`date` INF umount of $i resultcode:$RST - exit this round!" >> $LOG
+	    fi
+	    sleep 300
+	    exit 0
+	fi
 
-echo "`date` INF call to $0 $1" >> $LOG
-df -h | grep $ICYDEV >/dev/null
-if [ ! $? -eq 0 ];then 
-    echo "$ICYDEV NOT MOUNTED - try mount!" >> $LOG
-    mount $ICYDEV
-    exit 1
-    echo "`date` INF exit $0" >> $LOG
+	if [ ! -f "/mnt/$i/NOT_MOUNTED" ];then
+	    if [ $DEBUG -gt 0 ];then
+		echo "`date` WAR $i not really dismounted!!!" >> $LOG
+	    fi
+	fi
+    else
+	# ohne eject file das umount signalfile löschen
+	if [ -f "/mnt/$i.umount" ];then
+	    rm "/mnt/$i.umount" 2>>/dev/null
+	    RST=$?
+	    if [ $DEBUG -gt 0 ];then
+		echo "`date` INF removing /mnt/$i.umount resultcode::$RST!" >> $LOG
+	    fi
+	fi
+    fi
+done
+
+# zugriff auf blkid/mount etc  nur wenn kein auswurf geplant!
+if [ $EJECT -eq 0 ] ;then
+    blkid=`/sbin/blkid`
+    if [ $DEBUG -gt 1 ];then
+	echo "`date` INF current devicelist:" >> $LOG
+	echo "$blkid" >> $LOG
+    fi
 fi
 
-echo "ICYDEVICE: `df -h | grep $ICYDEV`" >> $LOG
-write_icy
-echo "`date` INF exit $0" >> $LOG
-exit 0
+for i in $DDDEVICELIST
+do
+    if [ -f "/mnt/$i.eject" ] ;then
+	RST=`find "/mnt/$i.eject" -mmin -$MAXAGE`
+	if [ ! -z $RST  ] ;then
+	    if [ $DEBUG -gt 0 ];then
+		echo "`date` INF /mnt/$i found but is still young ($MAXAGE)" >> $LOG
+	    fi
+	else
+	    if [ $DEBUG -gt 0 ];then
+		echo "`date` INF /mnt/$i found but old - will delete file and exit!" >> $LOG
+	    fi
+	    rm "/mnt/$i.eject"
+	    exit 0
+	fi
+    fi
 
+    if [ $EJECT -eq 0 ] ;then
+	if [ -f "/mnt/$i.eject" ] ;then
+	    if [ $DEBUG -gt 0 ];then
+		echo "`date` INF $i eject candidate - no mount!" >> $LOG
+	    fi
+	else
+	    #schauen ob bereits gemounted
+	    mount | grep "/mnt/$i" > /dev/null
+	    if [ ! $? -eq 0 ] ; then
+		# es muss gemountet werden!
+		ID=""
+		ID=`cat /etc/fstab | grep "/mnt/$i" | cut -f 1 -d " " | cut -f 2 -d "="`
+		echo "$blkid"|grep $ID >/dev/null
+		if [ $? -eq 0 ];then
+		    if [ $DEBUG -gt 0 ];then
+			echo "`date` INF $i with $ID is available!" >> $LOG
+			echo "`date` INF try to mount $i!" >> $LOG
+		    fi
+		    mount "/mnt/$i" 2>/dev/null
+		    if [  $? -eq 0 ] ; then
+			# mount war erfolgreich
+			date >> "/mnt/$i/$i.txt"
+			if [ $DEBUG -gt 0 ];then
+			    echo "`date` INF $i mounted successfully!" >> $LOG
+			fi
+		    else
+			# mount nicht mgl.
+			if [ $DEBUG -gt 0 ];then
+			    echo "`date` WAR Can't mount $i!" >> $LOG
+			fi
+		    fi
+		else
+		    if [ $DEBUG -gt 0 ];then
+    			echo "`date` INF NOT available: $i with $ID!" >> $LOG
+		    fi
+		fi
+	    else
+		# das device ist gemouted
+		if [ $DEBUG -gt 0 ];then
+		    echo "`date` INF keep alive with write to /mnt/$i/$i-all.txt" >> $LOG
+		fi
+		date >> "/mnt/$i/$i-all.txt"
+	    fi
+	fi
+    else
+	#hier alle aktivitaeten waehrend der eject phase
+	if [ -f "/mnt/$i.eject" ] ;then
+	    if [ $DEBUG -gt 0 ];then
+		echo "`date` WAR EJECTING ACTIVE IGNORING DRIVE $i - STOP WRITING TO DEVICE." >> $LOG
+	    fi
+	else
+	    # bei allen anderen Platten muessen wir gucken das die Platten die von Amutaq unmounted wurden wieder mounten
+	    # wir duerfen aber anders als im normalfall keine aufrufe von mount o.ä. starten da dies die auszuwerfende platte aktiviert
+	    if [ -f "/mnt/$i/NOT_MOUNTED" ];then
+		mount "/mnt/$i" 2>> $LOG >> $LOG
+		RST=$?
+		if [ $DEBUG -gt 0 ];then
+		    echo "`date` INF Mounting  /mnt/$i resultcode: $RST" >> $LOG
+		fi
+	    fi
+
+	    if [ $DEBUG -gt 0 ];then
+    		echo "`date` INF EJECTING ACTIVE keep alive with write to /mnt/$i/$i-eject.txt." >> $LOG
+	    fi
+	    date >> "/mnt/$i/$i-eject.txt"
+	fi
+    fi
+done
+
+#ping 192.168.1.168 -c 1 2>> $LOG >> /dev/null
+#touch $LOG1
+#if [ ! $? -eq 0 ];then
+#    echo "`date` WAR no ping" >> $LOG1
+#fi
+
+if [ $DEBUG -gt 0 ];then
+    echo "`date` $0 exit" >> $LOG
+    echo "" >> $LOG
+fi

@@ -3,27 +3,29 @@
 MT="/mnt/smb"
 TD="$MT/AUSTAUSCH"
 
-if [ -d $TD ];then
-    echo "Target available, fine!"
-else
-    echo "Target $TD NOT available, will mount!"
-    mount $MT
-fi
+#if [ -d $TD ];then
+#    echo "Target available, fine!"
+#else
+#    echo "Target $TD NOT available, will mount!"
+#    mount $MT
+#fi
 
-if [ -d $TD ];then
-    echo "Target available, fine!"
-else
-    echo "Target $TD NOT available, exit!"
-    exit 1
-fi
+#if [ -d $TD ];then
+#    echo "Target available, fine!"
+#else
+#    echo "Target $TD NOT available, exit!"
+#    exit 1
+#fi
 
 
 DT=`date +"%d-%b-%y-%H"`
 FN="/opt/AmutaQ!/opt_`hostname`${DT}.tar"
+#tar --exclude=X11rdp -cf $FN /opt/AmutaQ!
 tar --exclude=*.idx --exclude=X11rdp -cf $FN /opt/AmutaQ!
-cp $FN "/mnt/smb/AUSTAUSCH/opt"
-if [ $? -eq 0 ] ; then
-    rm $FN
-else
-    echo "error in copy!"
-fi
+
+#cp $FN "/mnt/smb/AUSTAUSCH/opt"
+#if [ $? -eq 0 ] ; then
+#    rm $FN
+#else
+#    echo "error in copy!"
+#fi

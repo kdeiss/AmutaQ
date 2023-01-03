@@ -6,7 +6,7 @@
 # V 0.0.3.12.9.19 luks beta
 # V 0.0.4.4.10.19 copy idx file preserve only timestamp (problems on NFS)
 # V 0.0.5.10.12.20 only reload NFS-Server, not hard restart
-
+# V 0.0.6.3.1.23 kd support for icy HDs (hardware encrypted usb disks)
 
 source /opt/AmutaQ!/etc/AmutaQ!.conf
 
@@ -140,6 +140,9 @@ if [ "$opencount" ]; then
   #stop crypt
   cryptdisks_stop $TARGETHD | tee -a $LOG
 fi
+
+# icy keep alive (s.a.icy)
+touch "/mnt/"$TARGETHD".eject"
 
 #restart all services
 service smbd start
