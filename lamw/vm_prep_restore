@@ -10,13 +10,14 @@ TARGET_DATASTORE="datastore1"
 TARGET_DISK_FORMAT=3
 
 
-PATH0="/vmfs/volumes"
-PATH1="/BUFFERDISK_${TARGET_ESXI_SERVER}/bazaar"
-
-SOURCEPATH=$PATH0$PATH1
-
 #don't edit from here
 
+PATH0="/vmfs/volumes"
+PATH1="/BUFFERDISK_${TARGET_ESXI_SERVER}/bazaar"
+PATH2="/DDUMBFS_${TARGET_ESXI_SERVER}/bazaar"
+
+SOURCEPATH=$PATH0$PATH1
+SOURCEPATH1=$PATH0$PATH2
 
 source /opt/AmutaQ!/etc/AmutaQ!.conf
 
@@ -26,9 +27,6 @@ LAMWLOG="/var/log/lamw_restore.log"
 TMPLOG="/tmp/lamw_restore.log"
 TMPOUTPUT="/tmp/lamw_restore.conf"
 
-
-# The commandline to the ESXI host
-CMDL="sshpass -p "$VMPASSWORD" ssh -o StrictHostKeyChecking=no $VMUSER@$VMHOST"
 
 PF=`hostname`
 
@@ -59,8 +57,30 @@ trap "del_lock ; exit 1" 2 9 15
 echo $$ > $LOCKFILE
 ##############script detection#########################
 
+
+rm -f $TMPLOG
+rm -f $TMPOUTPUT
+
 cd $VMBACKUPTARGET
 find . | grep ".vmx" > $TMPLOG
+
+while read line
+do
+    SDIR=`dirname "${SOURCEPATH}${line:1}"`
+    echo "#\"$SDIR;$PATH0/$TARGET_DATASTORE;$TARGET_DISK_FORMAT\""
+    echo "#\"$SDIR;$PATH0/$TARGET_DATASTORE;$TARGET_DISK_FORMAT\"" >> $TMPOUTPUT
+done < $TMPLOG
+
+cd $ASYNCTARGET
+find . | grep ".vmx" > $TMPLOG
+while read line
+do
+    SDIR=`dirname "${SOURCEPATH1}${line:1}"`
+    echo "#\"$SDIR;$PATH0/$TARGET_DATASTORE;$TARGET_DISK_FORMAT\""
+    echo "#\"$SDIR;$PATH0/$TARGET_DATASTORE;$TARGET_DISK_FORMAT\"" >> $TMPOUTPUT
+done < $TMPLOG
+
+sort $TMPOUTPUT > $TMPLOG
 
 
 echo "#<DIRECTORY or .TGZ>;<DATASTORE_TO_RESTORE_TO>;<DISK_FORMAT_TO_RESTORE>" > $TMPOUTPUT
@@ -74,15 +94,9 @@ echo "# \"/vmfs/volumes/dlgCore-NFS-bigboi.VM-Backups/WILLIAM_BACKUPS/STA202I/ST
 echo "# uncomment the lines for machines you would like to restore!" >> $TMPOUTPUT
 echo "" >> $TMPOUTPUT
 
-while read line
-do
-    SDIR=`dirname "${SOURCEPATH}${line:1}"`
-    echo "#\"$SDIR;$PATH0/$TARGET_DATASTORE;$TARGET_DISK_FORMAT\""
-    echo "#\"$SDIR;$PATH0/$TARGET_DATASTORE;$TARGET_DISK_FORMAT\"" >> $TMPOUTPUT
-done < $TMPLOG
+cat $TMPLOG >> $TMPOUTPUT
+rm -f $TMPLOG
 
 mcedit $TMPOUTPUT
-
-
 
 rm -f $LOCKFILE

@@ -1,0 +1,1 @@
+cat /var/log/mount_fs.log |grep "idx:"|grep "/mnt/"
