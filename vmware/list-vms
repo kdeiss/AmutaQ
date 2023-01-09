@@ -1,0 +1,112 @@
+#! /bin/bash
+# list all Guests running on controlled ESXi Server
+# by k.deiss@it-userdesk.de
+# V 0.0.1.6.1.23 initial release
+
+
+CONFIG="/opt/AmutaQ!/etc/AmutaQ!.conf"
+LOG="/var/log/list-vms.log"
+source "$CONFIG"
+
+
+# The commandline to the ESXI host
+CMDL="sshpass -p "$VMPASSWORD" ssh -o StrictHostKeyChecking=no $VMUSER@$VMHOST"
+TEMP="/tmp/list-vms.tmp"
+TEMP1="/tmp/list-vms1.tmp"
+TEMP2="/tmp/list-vms2.tmp"
+TEMP3="/tmp/list-vms3.tmp"
+JOBFILE=""
+
+# ------ DON'T CHANGE BELOW THIS LINE ------
+
+HEADER="Display_Name;ESXi_Server;VM_ID;Backup;Jobfile"
+
+
+##########################################################
+#               main script
+##########################################################
+
+
+function list_guests_single_host()
+{
+# use the SSH shell, run "vim-cmd vmsvc/getallvms" to get ID numbers - machine name
+
+$CMDL vim-cmd vmsvc/getallvms >$TEMP1
+while read line
+do
+    vid=`echo $line|cut -f 1 -d " "`
+    vname=`echo $line|cut -f 2 -d " "`
+    datastore=`echo $line|cut -f 3 -d " "`
+
+	if $(is_int $vid) && [ ! -z $vid ] ; then
+	    echo $datastore | grep "]" > /dev/null
+	    if [ $? -eq 0 ];then
+		echo $VMLIST | grep $vname > /dev/null
+		if [ $? -eq 0 ];then
+		    #echo "$vname;$VMHOST;$vid;$vname;$JOBFILE" >> $TEMP2
+		    echo "$vname;$VMHOST;$vid;YES;$JOBFILE" >> $TEMP2
+		    echo -n "."
+		else
+		    echo "$vname;$VMHOST;$vid;NO;$JOBFILE" >> $TEMP2
+		    echo -n "."
+		fi
+	    else
+		echo "WARNING - DISPLAY NAME WITH SPACES?($line)"
+	    fi 
+	fi
+done < $TEMP1
+cat $TEMP1 >> $TEMP3
+}
+
+function is_int() 
+{ 
+return $(test "$@" -eq "$@" > /dev/null 2>&1); 
+}
+
+
+function list_guests
+{
+echo -n "" > $TEMP1
+echo -n "" > $TEMP2
+echo -n "" > $TEMP3
+if [ -f $CONFIG.0 ];then 
+    let f=0
+    while [ $f -lt 100 ];do
+	if [ -f $CONFIG.$f ];then
+	    JOBFILE=`basename $CONFIG.$f`
+	    source "$CONFIG.$f"
+	    CMDL="sshpass -p "$VMPASSWORD" ssh -o StrictHostKeyChecking=no $VMUSER@$VMHOST"
+	    list_guests_single_host
+	else
+	    break
+	fi
+	let f=$f+1
+    done
+else
+    if [ -f $CONFIG ];then 
+	JOBFILE=`basename $CONFIG`
+	source "$CONFIG"
+	CMDL="sshpass -p "$VMPASSWORD" ssh -o StrictHostKeyChecking=no $VMUSER@$VMHOST"
+	list_guests_single_host
+    else
+	echo "`date` ERR can't access $CONFIG!" >> $LOG
+    fi
+fi
+echo ""
+echo "$HEADER" > $TEMP
+sort $TEMP2 >> $TEMP
+}
+
+
+
+
+
+list_guests
+cat $TEMP
+#rm -f $TEMP
+rm -f $TEMP1
+rm -f $TEMP2
+rm -f $TEMP3
+
+#echo $TEMP3
+

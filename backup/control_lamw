@@ -5,6 +5,7 @@
 # V 0.0.3 14.2.20 mail output refined, less logging, improved script detection
 # V 0.0.4 2.4.20 bugfix
 # V 0.0.5.31.12.20 kd/ah bugfix detecting process already running
+# V 0.0.6.9.1.23 kd bugfix detecting process already running (looking for ghettoVCB.sh if not it will kill a running restore!)
 
 source /opt/AmutaQ!/etc/AmutaQ!.conf
 
@@ -53,7 +54,7 @@ if [ -z $PIDB ];then
     del_lock
     exit 0
 else
-    PSX=`ps aux | grep sshpass |grep ghetto`
+    PSX=`ps aux | grep sshpass |grep ghettoVCB.sh`
     if [ ! -z "$PSX" ] ; then
         echo "`date` sshpass running - lamw seems to be active ==> $PSX" >> $LOG
     else

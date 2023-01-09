@@ -6,8 +6,14 @@
 # V 0.0.1 2.1.22
 
 TARGET_ESXI_SERVER="192.168.19.16"
-TARGET_DATASTORE="datastore1"
+TARGET_DATASTORE="datastore1 ssd1"
 TARGET_DISK_FORMAT=3
+
+for i in $TARGET_DATASTORE
+do
+    echo $i
+done
+
 
 
 #don't edit from here
@@ -62,23 +68,39 @@ rm -f $TMPLOG
 rm -f $TMPOUTPUT
 
 cd $VMBACKUPTARGET
+touch $TMPLOG
 find . | grep ".vmx" > $TMPLOG
 
-while read line
+#echo "BACKUPS ON $VMBACKUPTARGET" >> $TMPOUTPUT
+#echo "" >> $TMPOUTPUT
+
+for REAL_TARGET_DATASTORE in $TARGET_DATASTORE
 do
-    SDIR=`dirname "${SOURCEPATH}${line:1}"`
-    echo "#\"$SDIR;$PATH0/$TARGET_DATASTORE;$TARGET_DISK_FORMAT\""
-    echo "#\"$SDIR;$PATH0/$TARGET_DATASTORE;$TARGET_DISK_FORMAT\"" >> $TMPOUTPUT
-done < $TMPLOG
+    #echo "REAL_TARGET_DATASTORE: $REAL_TARGET_DATASTORE"
+    while read line
+    do
+	SDIR=`dirname "${SOURCEPATH}${line:1}"`
+	#echo "#\"$SDIR;$PATH0/$REAL_TARGET_DATASTORE;$TARGET_DISK_FORMAT\""
+	echo "#\"$SDIR;$PATH0/$REAL_TARGET_DATASTORE;$TARGET_DISK_FORMAT\"" >> $TMPOUTPUT
+    done < $TMPLOG
+done
+
+
 
 cd $ASYNCTARGET
 find . | grep ".vmx" > $TMPLOG
-while read line
+
+for REAL_TARGET_DATASTORE in $TARGET_DATASTORE
 do
-    SDIR=`dirname "${SOURCEPATH1}${line:1}"`
-    echo "#\"$SDIR;$PATH0/$TARGET_DATASTORE;$TARGET_DISK_FORMAT\""
-    echo "#\"$SDIR;$PATH0/$TARGET_DATASTORE;$TARGET_DISK_FORMAT\"" >> $TMPOUTPUT
-done < $TMPLOG
+
+    while read line
+    do
+	SDIR=`dirname "${SOURCEPATH1}${line:1}"`
+	#echo "#\"$SDIR;$PATH0/$REAL_TARGET_DATASTORE;$TARGET_DISK_FORMAT\""
+	echo "#\"$SDIR;$PATH0/$REAL_TARGET_DATASTORE;$TARGET_DISK_FORMAT\"" >> $TMPOUTPUT
+    done < $TMPLOG
+done
+
 
 sort $TMPOUTPUT > $TMPLOG
 
@@ -96,6 +118,9 @@ echo "" >> $TMPOUTPUT
 
 cat $TMPLOG >> $TMPOUTPUT
 rm -f $TMPLOG
+
+
+
 
 mcedit $TMPOUTPUT
 
