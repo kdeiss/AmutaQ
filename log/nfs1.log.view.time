@@ -24,7 +24,7 @@ echo "--------------------------------------------------------------------------
 
 # cat async.log |egrep "start copy|ERR |WAR |sent|speedup|finished CRC check| copy \(ID" > $tmp
 #tail -n 600 async.log |egrep "start copy|ERR |sent|speedup|finished CRC check| copy \(ID" > $tmp
-tail -n 2000 $RSYNC_LOG |egrep "Cloning disk|Backup Duration|changing to configuration file"
+tail -n 3000 $RSYNC_LOG |egrep "Cloning disk|Backup Duration|changing to configuration file"
 
 
 

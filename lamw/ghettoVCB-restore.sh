@@ -335,22 +335,22 @@ if [ ! "${IS_TGZ}" == "1" ]; then
 
                     if [ ${RESTORE_DISK_FORMAT} -eq 1 ]; then
                         if [[ "${VER}" == "4" ]] || [[ "${VER}" == "5" ]] || [[ "${VER}" == "6" ]] ; then
-                            ${VMKFSTOOLS_CMD} -i "${SOURCE_VMDK}" -a "${ADAPTER_FORMAT}" -d zeroedthick "${DESTINATION_VMDK}" 2>&1 | tee "${REDIRECT}"
+                            ${VMKFSTOOLS_CMD} -i "${SOURCE_VMDK}" -a "${ADAPTER_FORMAT}" -d zeroedthick "${DESTINATION_VMDK}" 2>&1 | tee -a "${REDIRECT}"
                         else
-                            ${VMKFSTOOLS_CMD} -i "${SOURCE_VMDK}" -a "${ADAPTER_FORMAT}" "${DESTINATION_VMDK}" 2>&1 | tee "${REDIRECT}"
+                            ${VMKFSTOOLS_CMD} -i "${SOURCE_VMDK}" -a "${ADAPTER_FORMAT}" "${DESTINATION_VMDK}" 2>&1 | tee -a "${REDIRECT}"
                         fi
 
                     elif [ ${RESTORE_DISK_FORMAT} -eq 2 ]; then
-                        ${VMKFSTOOLS_CMD} -i "${SOURCE_VMDK}" -a "${ADAPTER_FORMAT}" -d 2gbsparse "${DESTINATION_VMDK}" 2>&1 | tee "${REDIRECT}"
+                        ${VMKFSTOOLS_CMD} -i "${SOURCE_VMDK}" -a "${ADAPTER_FORMAT}" -d 2gbsparse "${DESTINATION_VMDK}" 2>&1 | tee -a "${REDIRECT}"
 
                     elif [ ${RESTORE_DISK_FORMAT} -eq 3 ]; then
-                        ${VMKFSTOOLS_CMD} -i "${SOURCE_VMDK}" -a "${ADAPTER_FORMAT}" -d thin "${DESTINATION_VMDK}" 2>&1 | tee "${REDIRECT}"
+                        ${VMKFSTOOLS_CMD} -i "${SOURCE_VMDK}" -a "${ADAPTER_FORMAT}" -d thin "${DESTINATION_VMDK}" 2>&1 | tee -a "${REDIRECT}"
 
                     elif [ ${RESTORE_DISK_FORMAT} -eq 4 ]; then
                         if [[ "${VER}" == "4" ]] || [[ "${VER}" == "5" ]] || [[ "${VER}" == "6" ]] ; then
-                            ${VMKFSTOOLS_CMD} -i "${SOURCE_VMDK}" -a "${ADAPTER_FORMAT}" -d eagerzeroedthick "${DESTINATION_VMDK}" 2>&1 | tee "${REDIRECT}"
+                            ${VMKFSTOOLS_CMD} -i "${SOURCE_VMDK}" -a "${ADAPTER_FORMAT}" -d eagerzeroedthick "${DESTINATION_VMDK}" 2>&1 | tee -a "${REDIRECT}"
                         else
-                            ${VMKFSTOOLS_CMD} -i "${SOURCE_VMDK}" -a "${ADAPTER_FORMAT}" "${DESTINATION_VMDK}" 2>&1 | tee "${REDIRECT}"
+                            ${VMKFSTOOLS_CMD} -i "${SOURCE_VMDK}" -a "${ADAPTER_FORMAT}" "${DESTINATION_VMDK}" 2>&1 | tee -a "${REDIRECT}"
                         fi
                     fi
                 else

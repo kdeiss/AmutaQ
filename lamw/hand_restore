@@ -1,13 +1,59 @@
 #! /bin/bash
 # by k.deiss@it-userdesk.de
-# acces every esxi host and write a testsquence to bufferdisk
-# V 0.0.1 19.7.18
+# restore backups to a specific ESXi host
+# first run ./vm_prep_restore. This will create a list of all your backups.
+# At the end this script will present the generated list in your favorite editor.
+# Select your machines by removing the # at the begin of each line. You can select multiple machines at one time.
+# The generated files you may find here: /tmp/lamw_restore_full.conf and /tmp/lamw_restore.conf
+# Run this script. If you are connected via ssh consider to run it in screen because it may run long time if you select MYRESTOREMODE=1.
+# In RESTOREMODE=0 it will just copy your machine definition (VMX file) to MYTARGETSERVER and create a link to your Harddisks on the NFS Share.
+# It will make further adjustments to the VMX file and create a local(!) snapshot, so that there are no write operations to the NFS disk.
+# Of course your machines will run significantly slow in this mode, but you can check fuctionality of your backups 
+# You may find all events logged to /var/log/lamw_restore.log
 
+# V 0.0.1 27.1.23 BETA
 
+MYTARGETSERVER="192.168.19.14"
+let MYRESTOREMODE=0    #(0=LINK,1=COPY)
+MYCONFIGFILE="/tmp/lamw_restore.conf"
 
 #don't edit from here
-
-
 source /opt/AmutaQ!/etc/AmutaQ!.conf
 
-/opt/AmutaQ!/lamw/vm_restore_single /tmp/lamw_restore.conf 192.168.19.14 1
+function run_restore
+{
+/opt/AmutaQ!/lamw/vm_restore_single $MYCONFIGFILE $MYTARGETSERVER $MYRESTOREMODE
+}
+
+
+
+clear
+
+if [[ -z $(grep '[^[:space:]]' $MYCONFIGFILE 2>/dev/nul) ]] ; then
+    echo "$MYCONFIGFILE not found, please run ./vm_prep_restore first."
+    exit 1
+fi
+
+
+echo ""
+cat $MYCONFIGFILE
+echo ""
+echo "CONFIGFILE: $MYCONFIGFILE"
+echo "TARGET SERVER: $MYTARGETSERVER"
+
+if [ $MYRESTOREMODE -eq 0 ];then
+    echo "Will restore only vmx files, take snapshot, use disks on remote nfs server."
+fi
+if [ $MYRESTOREMODE -eq 1 ];then
+    echo "Will restore entire machine to targetsystem."
+fi
+
+while true; do
+    read -p "Do you wish to restore this machines? (y/n)" yn
+    case $yn in
+        [Yy]* ) run_restore; break;;
+        [Nn]* ) exit;;
+        * ) echo "Please answer yes or no.";;
+    esac
+done
+

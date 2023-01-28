@@ -1,19 +1,16 @@
 #! /bin/bash
 # by k.deiss@it-userdesk.de
 # create list of restore candidates
-# sample call: 
 
-# V 0.0.1 2.1.22
+# V 0.0.1 2.1.23 initial release
+# V 0.0.2 27.1.23 still beta small improvements
+
 
 TARGET_ESXI_SERVER="192.168.19.16"
 TARGET_DATASTORE="datastore1 ssd1"
 TARGET_DISK_FORMAT=3
-
-for i in $TARGET_DATASTORE
-do
-    echo $i
-done
-
+#MYEDITOR=editor
+MYEDITOR=mcedit
 
 
 #don't edit from here
@@ -31,7 +28,8 @@ LOG=$ASYNC_LOG
 BASEPATH="/opt/AmutaQ!/lamw"
 LAMWLOG="/var/log/lamw_restore.log"
 TMPLOG="/tmp/lamw_restore.log"
-TMPOUTPUT="/tmp/lamw_restore.conf"
+TMPOUTPUT="/tmp/lamw_restore_full.conf"
+TMPOUTPUTESS="/tmp/lamw_restore.conf"
 
 
 PF=`hostname`
@@ -80,7 +78,6 @@ do
     while read line
     do
 	SDIR=`dirname "${SOURCEPATH}${line:1}"`
-	#echo "#\"$SDIR;$PATH0/$REAL_TARGET_DATASTORE;$TARGET_DISK_FORMAT\""
 	echo "#\"$SDIR;$PATH0/$REAL_TARGET_DATASTORE;$TARGET_DISK_FORMAT\"" >> $TMPOUTPUT
     done < $TMPLOG
 done
@@ -92,7 +89,6 @@ find . | grep ".vmx" > $TMPLOG
 
 for REAL_TARGET_DATASTORE in $TARGET_DATASTORE
 do
-
     while read line
     do
 	SDIR=`dirname "${SOURCEPATH1}${line:1}"`
@@ -116,12 +112,25 @@ echo "# \"/vmfs/volumes/dlgCore-NFS-bigboi.VM-Backups/WILLIAM_BACKUPS/STA202I/ST
 echo "# uncomment the lines for machines you would like to restore!" >> $TMPOUTPUT
 echo "" >> $TMPOUTPUT
 
+
 cat $TMPLOG >> $TMPOUTPUT
+$MYEDITOR $TMPOUTPUT
+
+
+echo -n ""> $TMPOUTPUTESS
+while read line
+do
+    if [ ! "${line:0:1}" == "#" ] && [ ! -z $line ]; then
+	echo "$line" >> $TMPOUTPUTESS
+    fi
+done < $TMPOUTPUT
+
+echo "-------------------------------------------------------------------"
+echo "File $TMPOUTPUT created."
+echo "run: /opt/AmutaQ!/lamw/vm_restore_single $TMPOUTPUTESS IP_OF_YOUR_ESXi LINK/COPY(0/1)"
+echo ""
+echo "This machines are selected to be restored:"
+cat $TMPOUTPUTESS
+
 rm -f $TMPLOG
-
-
-
-
-mcedit $TMPOUTPUT
-
 rm -f $LOCKFILE
