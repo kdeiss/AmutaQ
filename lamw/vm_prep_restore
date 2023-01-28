@@ -5,24 +5,61 @@
 # V 0.0.1 2.1.23 initial release
 # V 0.0.2 27.1.23 still beta small improvements
 
+source /opt/AmutaQ!/etc/AmutaQ!.conf
 
-TARGET_ESXI_SERVER="192.168.19.16"
-TARGET_DATASTORE="datastore1 ssd1"
-TARGET_DISK_FORMAT=3
-#MYEDITOR=editor
-MYEDITOR=mcedit
+
+MYRESTORECONF="/opt/AmutaQ!/etc/restore.conf"
+# this variables should be defined in #MYRESTORECONF
+#TARGET_DATASTORE="datastore1 ssd1" 	# the available datastores on the target ESXi server
+#TARGET_DISK_FORMAT=3			# the disk format the restored disks shall have
+#MYEDITOR=editor			# your prefered editor (defaults to editor) can be mcedit or whatever
+#MY_NFS_IP=$BACKUPNETWORK_IP		# the ip your AmutaQ instance exposes nfs shares (defaults to $BACKUPNETWORK_IP)
 
 
 #don't edit from here
 
+function prep_basic_conf
+{
+if [[ -z $(grep '[^[:space:]]' $MYRESTORECONF 2>/dev/nul) ]] ; then
+    echo "MYTARGETSERVER=\"0.0.0.0\"		# the target ESXi server" > $MYRESTORECONF
+    echo "let MYRESTOREMODE=0    			# 0 = link vmdk files from nfs server / 1 = copy vmdk files to server" >> $MYRESTORECONF
+    echo "TARGET_DATASTORE=\"datastore1 ssd1\" 	# the available datastores on the target ESXi server" >> $MYRESTORECONF
+    echo "TARGET_DISK_FORMAT=3			# the target disk format  1 = zeroedthick / 2 = 2gbsparse / 3 = thin / 4 = eagerzeroedthick" >> $MYRESTORECONF
+    echo "MYEDITOR=editor				# your prefered editor (defaults to editor) can be mcedit or whatever" >> $MYRESTORECONF
+    echo "MY_NFS_IP=$BACKUPNETWORK_IP			# the ip your AmutaQ instance exposes nfs shares (defaults to BACKUPNETWORK_IP)" >> $MYRESTORECONF
+fi
+echo "generic configuration $MYRESTORECONF created!"
+}
+
+clear
+#conf file existinng?
+if [[ -z $(grep '[^[:space:]]' $MYRESTORECONF  2>/dev/nul) ]] ; then
+    echo "$MYRESTORECONF not found or invalid!"
+    prep_basic_conf
+    echo "Please edit $MYRESTORECONF and run again!"
+    rm -f $LOCKFILE
+    exit 1
+else 
+    source $MYRESTORECONF
+fi
+
+
+# check whether is the default conf
+if [ " $MYTARGETSERVER" == " 0.0.0.0" ];then
+    echo "Invalid targetserver $MYTARGETSERVER "
+    echo "Please edit $MYRESTORECONF and run again!"
+    rm -f $LOCKFILE
+    exit 1
+fi
+
+
+
 PATH0="/vmfs/volumes"
-PATH1="/BUFFERDISK_${TARGET_ESXI_SERVER}/bazaar"
-PATH2="/DDUMBFS_${TARGET_ESXI_SERVER}/bazaar"
+PATH1="/BUFFERDISK_${MY_NFS_IP}/bazaar"
+PATH2="/DDUMBFS_${MY_NFS_IP}/bazaar"
 
 SOURCEPATH=$PATH0$PATH1
 SOURCEPATH1=$PATH0$PATH2
-
-source /opt/AmutaQ!/etc/AmutaQ!.conf
 
 LOG=$ASYNC_LOG
 BASEPATH="/opt/AmutaQ!/lamw"
@@ -60,6 +97,8 @@ del_lock()
 trap "del_lock ; exit 1" 2 9 15
 echo $$ > $LOCKFILE
 ##############script detection#########################
+
+
 
 
 rm -f $TMPLOG
@@ -116,6 +155,20 @@ echo "" >> $TMPOUTPUT
 cat $TMPLOG >> $TMPOUTPUT
 $MYEDITOR $TMPOUTPUT
 
+#make copy of old result
+
+if [ -f ${TMPOUTPUTESS}.2 ] ; then
+    cp ${TMPOUTPUTESS}.2 ${TMPOUTPUTESS}.3
+fi
+
+if [ -f ${TMPOUTPUTESS}.1 ] ; then
+    cp ${TMPOUTPUTESS}.1 ${TMPOUTPUTESS}.2
+fi
+
+if [ -f $TMPOUTPUTESS ] ; then
+    cp $TMPOUTPUTESS ${TMPOUTPUTESS}.1
+fi
+
 
 echo -n ""> $TMPOUTPUTESS
 while read line
@@ -127,7 +180,8 @@ done < $TMPOUTPUT
 
 echo "-------------------------------------------------------------------"
 echo "File $TMPOUTPUT created."
-echo "run: /opt/AmutaQ!/lamw/vm_restore_single $TMPOUTPUTESS IP_OF_YOUR_ESXi LINK/COPY(0/1)"
+echo "Run: /opt/AmutaQ!/lamw/hand_restore"
+echo "Or you can run it directly with: /opt/AmutaQ!/lamw/vm_restore_single $TMPOUTPUTESS IP_OF_YOUR_ESXi LINK/COPY(0/1)"
 echo ""
 echo "This machines are selected to be restored:"
 cat $TMPOUTPUTESS

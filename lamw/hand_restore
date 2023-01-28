@@ -8,26 +8,40 @@
 # Run this script. If you are connected via ssh consider to run it in screen because it may run long time if you select MYRESTOREMODE=1.
 # In RESTOREMODE=0 it will just copy your machine definition (VMX file) to MYTARGETSERVER and create a link to your Harddisks on the NFS Share.
 # It will make further adjustments to the VMX file and create a local(!) snapshot, so that there are no write operations to the NFS disk.
-# Of course your machines will run significantly slow in this mode, but you can check fuctionality of your backups 
+# Of course your machines will run significantly slow in this mode, but you can check functionality of your backups 
 # You may find all events logged to /var/log/lamw_restore.log
 
 # V 0.0.1 27.1.23 BETA
+# V 0.0.2 28.1.23 external config file
 
-MYTARGETSERVER="192.168.19.14"
+MYTARGETSERVER="0.0.0.0"
 let MYRESTOREMODE=0    #(0=LINK,1=COPY)
 MYCONFIGFILE="/tmp/lamw_restore.conf"
+MYRESTORECONF="/opt/AmutaQ!/etc/restore.conf"
 
 #don't edit from here
 source /opt/AmutaQ!/etc/AmutaQ!.conf
+
 
 function run_restore
 {
 /opt/AmutaQ!/lamw/vm_restore_single $MYCONFIGFILE $MYTARGETSERVER $MYRESTOREMODE
 }
 
-
-
 clear
+
+if [[ -z $(grep '[^[:space:]]' $MYRESTORECONF 2>/dev/nul) ]] ; then
+    echo "Please edit $MYRESTORECONF and run again!"
+    exit 2
+else
+    source $MYRESTORECONF
+fi
+
+if [ " $MYTARGETSERVER" == " 0.0.0.0" ];then
+    echo "Invalid targetserver $MYTARGETSERVER "
+    echo "Please edit $MYRESTORECONF and run again!"
+    exit 1
+fi
 
 if [[ -z $(grep '[^[:space:]]' $MYCONFIGFILE 2>/dev/nul) ]] ; then
     echo "$MYCONFIGFILE not found, please run ./vm_prep_restore first."
