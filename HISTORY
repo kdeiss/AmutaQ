@@ -1,3 +1,8 @@
+VERSION="AmutaQ! 0.4.24.28.1.23"
+-    shutdown script bugfix (ah)
+-    new restore mechanism (kd)
+
+
 VERSION="AmutaQ! 0.4.23.12.10.22"
 -    update lamw (ah)
 -    delete some useless files (kd)
