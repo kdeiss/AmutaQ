@@ -22,7 +22,7 @@ function prep_basic_conf
 {
 if [[ -z $(grep '[^[:space:]]' $MYRESTORECONF 2>/dev/nul) ]] ; then
     echo "MYTARGETSERVER=\"0.0.0.0\"		# the target ESXi server" > $MYRESTORECONF
-    echo "let MYRESTOREMODE=0    			# 0 = link vmdk files from nfs server / 1 = copy vmdk files to server" >> $MYRESTORECONF
+    echo "let MYRESTOREMODE=1    			# 0 = link vmdk files from nfs server / 1 = copy vmdk files to server" >> $MYRESTORECONF
     echo "TARGET_DATASTORE=\"datastore1 ssd1\" 	# the available datastores on the target ESXi server" >> $MYRESTORECONF
     echo "TARGET_DISK_FORMAT=3			# the target disk format  1 = zeroedthick / 2 = 2gbsparse / 3 = thin / 4 = eagerzeroedthick" >> $MYRESTORECONF
     echo "MYEDITOR=editor				# your prefered editor (defaults to editor) can be mcedit or whatever" >> $MYRESTORECONF

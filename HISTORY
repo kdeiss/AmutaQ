@@ -1,6 +1,9 @@
 VERSION="AmutaQ! 0.4.24.28.1.23"
 -    shutdown script bugfix (ah)
 -    new restore mechanism (kd)
+-    update lamw/ghettoVCB-restore.sh (kd)
+-    added a tool to list all machines and backups (vmware/list-vms) (kd)
+-    added tools in log: (log/nfs1.log.view.time log/restore.log.view) (kd)
 
 
 VERSION="AmutaQ! 0.4.23.12.10.22"
