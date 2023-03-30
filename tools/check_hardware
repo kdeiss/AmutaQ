@@ -61,6 +61,7 @@ fi
 cat "/tmp/$P1.hwr" | grep "not found\|Error: No controllers detected" >/dev/null
 if [ $? -eq 0 ] ; then
     echo "`date` WAR HDD check not available on host $VMHOST"
+    echo "`date` WAR HDD check not available on host $VMHOST" >> $LOG
     return 1
 fi
 
