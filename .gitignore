@@ -1,12 +1,8 @@
 update/
 sysbackup/
 hotfix/
-*.0
-*.1
-*.2
-*.3
-*.4
-*.5
+AmutaQ!.conf.*
+!AmutaQ!.conf.sample
 2015*
 temp
 *.conf
