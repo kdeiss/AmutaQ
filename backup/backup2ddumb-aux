@@ -47,8 +47,9 @@
 # V 0.1.10.9.10.20 ah: remove mksbackup leftovers
 # V 0.1.11.31.12.20 kd/ah bugfix detecting process already running
 # V 0.1.12.02.01.21 ah handle dayofmonth as nonregular disk for last used disk
+# V 0.1.14.30.01.23 minor changes to logging (kd)
 
-LV="0.1.12.02.01.21"
+LV="0.1.14.30.01.23"
 
 # Paranoiamode controls destination of backup
 # >1 In this (paranoid) mode data is written each-n paranoimode to bufferdisk specified by $VMBACKUPTARGET.
@@ -748,10 +749,15 @@ do
     # check for signal
     check_signal
 
-    #start Bazaar
+    # start the backup - note bazaarvcb only supported in versions < ESXi 6.x
     echo "">>"$LOG"
-    echo "`date` INF will start bazaarvcb backup for $VMGUEST!">>"$LOG"
+    if [ ! "$BACKUPTOOL" == "LAMW" ];then
+	echo "`date` INF will start bazaarvcb backup for $VMGUEST!">>"$LOG"
+    else
+	echo "`date` INF will start lamw backup for $VMGUEST!">>"$LOG"
+    fi
     echo "`date` $LOG2" > $LOG2
+
 
     TEMPCTR=`cat /tmp/$VMGUEST 2>/dev/null`
     if [ -z $TEMPCTR ] ; then

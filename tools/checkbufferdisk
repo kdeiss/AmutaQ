@@ -9,10 +9,13 @@
 # V 0.0.5.7.4.16 better log in case of error
 # V 0.0.6.2.8.16 $ESTIMTED_SIZE_OF_NEW_MACHINE
 # V 0.1.0.27.3.17 get_freeblocksonbufferdisk/check_bufferdisk bugfix
+# V 0.1.1.30.1.23 new default for ESTIMTED_SIZE_OF_NEW_MACHINE
 
 #the size we assume for a freshly added machine
 ESTIMTED_SIZE_OF_NEW_MACHINE=999999999 #1T
 ESTIMTED_SIZE_OF_NEW_MACHINE=199999999 #200GB
+ESTIMTED_SIZE_OF_NEW_MACHINE=99999999  #100GB
+ESTIMTED_SIZE_OF_NEW_MACHINE=50000000  #50GB
 
 
 source /opt/AmutaQ!/etc/AmutaQ!.conf
