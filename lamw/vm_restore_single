@@ -103,21 +103,21 @@ $CMDL "rmdir /tmp/${PF}_restore"
 $CMDL "mkdir /tmp/${PF}_restore"
 
 fname="$BASEPATH/$FNAMEA"
-sshpass -p "$VMPASSWORD" scp "$fname" "root@$VMHOST:/tmp/${PF}_restore"
+sshpass -p "$VMPASSWORD" scp "$fname" "root@$TARGETSERVER:/tmp/${PF}_restore"
 if [ ! $? -eq 0 ];then
     echo "`date` ERR can't copy $fname to ESXi Host $TARGETSERVER"
     return 1
 fi
 
 fname="$BASEPATH/$FNAMEB"
-sshpass -p "$VMPASSWORD" scp "$fname" "root@$VMHOST:/tmp/${PF}_restore"
+sshpass -p "$VMPASSWORD" scp "$fname" "root@$TARGETSERVER:/tmp/${PF}_restore"
 if [ ! $? -eq 0 ];then
     echo "`date` ERR can't copy $fname to ESXi Host $TARGETSERVER"
     return 1
 fi
 
 fname="$CONFIGFILE"
-sshpass -p "$VMPASSWORD" scp "$fname" "root@$VMHOST:/tmp/${PF}_restore"
+sshpass -p "$VMPASSWORD" scp "$fname" "root@$TARGETSERVER:/tmp/${PF}_restore"
 if [ ! $? -eq 0 ];then
     echo "`date` ERR can't copy $fname to ESXi Host $TARGETSERVER"
     return 1
