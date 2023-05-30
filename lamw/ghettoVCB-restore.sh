@@ -6,7 +6,7 @@
 
 ###### DO NOT EDIT PASS THIS LINE ######
 
-LAST_MODIFIED_DATE=2021_10_20
+LAST_MODIFIED_DATE=2023_04_21
 VERSION=1
 VERSION_STRING=${LAST_MODIFIED_DATE}_${VERSION}
 
@@ -94,7 +94,7 @@ sanityCheck() {
     ESX_VERSION=$(vmware -v | awk '{print $3}')
 
     case "${ESX_VERSION}" in
-        8.0.0)                      VER=8; break;;
+        8.0.0|8.0.1)                VER=8; break;;
         7.0.0|7.0.1|7.0.2|7.0.3)    VER=7; break;;
         6.0.0|6.5.0|6.7.0)          VER=6; break;;
         5.0.0|5.1.0|5.5.0)          VER=5; break;;
@@ -324,7 +324,7 @@ if [ ! "${IS_TGZ}" == "1" ]; then
                     DS_VMDK_PATH=$(echo "${SOURCE_LINE_VMDK}" | sed 's/\/vmfs\/volumes\///g')
                     VMDK_DATASTORE=$(echo "${DS_VMDK_PATH%%/*}")
                     VMDK_VM=$(echo "${DS_VMDK_PATH##*/}")
-                    SOURCE_VMDK="${VM_TO_RESTORE}/${VMDK_DATASTORE}/${VMDK_VM}"
+                    SOURCE_VMDK="${VM_TO_RESTORE}/${VMDK_VM}"
                 else
                     SOURCE_VMDK="${VM_TO_RESTORE}/${SOURCE_LINE_VMDK}"
                 fi
@@ -335,22 +335,22 @@ if [ ! "${IS_TGZ}" == "1" ]; then
 
                     if [ ${RESTORE_DISK_FORMAT} -eq 1 ]; then
                         if [[ "${VER}" == "4" ]] || [[ "${VER}" == "5" ]] || [[ "${VER}" == "6" ]] ; then
-                            ${VMKFSTOOLS_CMD} -i "${SOURCE_VMDK}" -a "${ADAPTER_FORMAT}" -d zeroedthick "${DESTINATION_VMDK}" 2>&1 | tee -a "${REDIRECT}"
+                            ${VMKFSTOOLS_CMD} -i "${SOURCE_VMDK}" -a "${ADAPTER_FORMAT}" -d zeroedthick "${DESTINATION_VMDK}" 2>&1 | tee "${REDIRECT}"
                         else
-                            ${VMKFSTOOLS_CMD} -i "${SOURCE_VMDK}" -a "${ADAPTER_FORMAT}" "${DESTINATION_VMDK}" 2>&1 | tee -a "${REDIRECT}"
+                            ${VMKFSTOOLS_CMD} -i "${SOURCE_VMDK}" -a "${ADAPTER_FORMAT}" "${DESTINATION_VMDK}" 2>&1 | tee "${REDIRECT}"
                         fi
 
                     elif [ ${RESTORE_DISK_FORMAT} -eq 2 ]; then
-                        ${VMKFSTOOLS_CMD} -i "${SOURCE_VMDK}" -a "${ADAPTER_FORMAT}" -d 2gbsparse "${DESTINATION_VMDK}" 2>&1 | tee -a "${REDIRECT}"
+                        ${VMKFSTOOLS_CMD} -i "${SOURCE_VMDK}" -a "${ADAPTER_FORMAT}" -d 2gbsparse "${DESTINATION_VMDK}" 2>&1 | tee "${REDIRECT}"
 
                     elif [ ${RESTORE_DISK_FORMAT} -eq 3 ]; then
-                        ${VMKFSTOOLS_CMD} -i "${SOURCE_VMDK}" -a "${ADAPTER_FORMAT}" -d thin "${DESTINATION_VMDK}" 2>&1 | tee -a "${REDIRECT}"
+                        ${VMKFSTOOLS_CMD} -i "${SOURCE_VMDK}" -a "${ADAPTER_FORMAT}" -d thin "${DESTINATION_VMDK}" 2>&1 | tee "${REDIRECT}"
 
                     elif [ ${RESTORE_DISK_FORMAT} -eq 4 ]; then
                         if [[ "${VER}" == "4" ]] || [[ "${VER}" == "5" ]] || [[ "${VER}" == "6" ]] ; then
-                            ${VMKFSTOOLS_CMD} -i "${SOURCE_VMDK}" -a "${ADAPTER_FORMAT}" -d eagerzeroedthick "${DESTINATION_VMDK}" 2>&1 | tee -a "${REDIRECT}"
+                            ${VMKFSTOOLS_CMD} -i "${SOURCE_VMDK}" -a "${ADAPTER_FORMAT}" -d eagerzeroedthick "${DESTINATION_VMDK}" 2>&1 | tee "${REDIRECT}"
                         else
-                            ${VMKFSTOOLS_CMD} -i "${SOURCE_VMDK}" -a "${ADAPTER_FORMAT}" "${DESTINATION_VMDK}" 2>&1 | tee -a "${REDIRECT}"
+                            ${VMKFSTOOLS_CMD} -i "${SOURCE_VMDK}" -a "${ADAPTER_FORMAT}" "${DESTINATION_VMDK}" 2>&1 | tee "${REDIRECT}"
                         fi
                     fi
                 else
