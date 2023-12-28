@@ -115,7 +115,13 @@ do
 			SRVFS=`echo $nbid |cut -f 2 -d ":" |cut -f 1 -d " "`
 			EXPORT=`showmount -e $SRV | grep $SRVFS`
 			if [ ! -z "$EXPORT" ] ; then
-			    echo "HDD `trans-discnames $i` is connected via NFS."
+	                    CURCHKDSK=`mount | grep /mnt/$i`
+        	            if [ -n "$CURCHKDSK" ];then
+		    	        echo "HDD `trans-discnames $i` could be removed - but is currently mounted."
+			        echo "try to umount `trans-discnames $i` ......."
+				umount /mnt/$i
+	                    fi
+			    echo "HDD `trans-discnames $i` is used via NFS."
 			    let UMOUNT=0
 			fi
 		    fi
