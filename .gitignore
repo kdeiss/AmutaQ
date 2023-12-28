@@ -23,6 +23,7 @@ stop
 switch
 waita
 wait
+softswitch
 ASYNC_*
 release.inf
 donotswitch
